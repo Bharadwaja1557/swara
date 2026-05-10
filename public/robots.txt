@@ -1,0 +1,4 @@
+# Swara is a private personal music app.
+# Disallow all web crawlers.
+User-agent: *
+Disallow: /

@@ -1,0 +1,67 @@
+name: Deploy Swara to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # Allow manual redeploy (e.g. after m4a-db updates)
+  workflow_dispatch:
+  # Allow m4a-db to trigger a rebuild via repository_dispatch
+  repository_dispatch:
+    types: [music-db-updated]
+
+# Ensure only one deploy runs at a time
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  build:
+    name: Build static export
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout swara repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build (next export + SPA fallback)
+        env:
+          # SHA-256 hex hash of your passphrase
+          # Store the actual hash in GitHub repo secrets — never the raw passphrase
+          NEXT_PUBLIC_PASSPHRASE_HASH: ${{ secrets.PASSPHRASE_HASH }}
+          # Repo where music lives (public)
+          NEXT_PUBLIC_MUSIC_DB_REPO: ${{ vars.MUSIC_DB_REPO || 'gajala-sonic-solutions/m4a-db' }}
+          # If deploying to a subdirectory e.g. username.github.io/swara, set this:
+          # NEXT_PUBLIC_BASE_PATH: /swara
+        run: npm run build:pages
+
+      - name: Upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: out/
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
