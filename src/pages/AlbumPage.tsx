@@ -1,4 +1,5 @@
 import { useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
 import { formatDuration } from '@/utils/greeting';
@@ -70,10 +71,18 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
 const AlbumPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { albums, loading, loaded } = useLibraryStore();
+  const { albums, loading, loaded, loadAlbumTracks } = useLibraryStore();
+  const [tracksLoading, setTracksLoading] = useState(false);
   const { playAlbum, playTrack } = usePlayerStore();
 
   const album = albums.find((a) => a.id === id);
+
+  useEffect(() => {
+    if (!album || album.tracks.length > 0) return;
+
+    setTracksLoading(true);
+    loadAlbumTracks(album.id).finally(() => setTracksLoading(false));
+  }, [album, loadAlbumTracks]);
 
   if (loading && !loaded) {
     return (
@@ -98,9 +107,11 @@ const AlbumPage = () => {
     );
   }
 
-  const handlePlayAll = () => playAlbum(album.tracks, 0);
+  const tracks = album.tracks;
+
+  const handlePlayAll = () => playAlbum(tracks, 0);
   const handleShuffle = () => {
-    const shuffled = [...album.tracks].sort(() => Math.random() - 0.5);
+    const shuffled = [...tracks].sort(() => Math.random() - 0.5);
     playTrack(shuffled[0], shuffled);
   };
 
@@ -150,7 +161,7 @@ const AlbumPage = () => {
             {album.composer}
           </button>
           <p className="text-xs text-swara-muted mt-0.5">
-            {album.year} · {album.trackCount} songs
+            {album.year} · {tracks.length} songs
           </p>
         </div>
 
@@ -195,8 +206,12 @@ const AlbumPage = () => {
 
         {/* Track list */}
         <div>
-          {album.tracks.map((track, i) => (
-            <TrackItem key={track.id} track={track} index={i} queue={album.tracks} />
+          {tracksLoading ? (
+            <div className="py-6 text-center text-sm text-swara-muted">Loading tracks...</div>
+          ) : tracks.length === 0 ? (
+            <div className="py-6 text-center text-sm text-swara-muted">No tracks available</div>
+          ) : tracks.map((track, i) => (
+            <TrackItem key={track.id} track={track} index={i} queue={tracks} />
           ))}
         </div>
       </div>
