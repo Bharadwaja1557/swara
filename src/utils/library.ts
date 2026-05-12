@@ -1,7 +1,22 @@
-import type { RawLibrary, RawLibraryAlbum, Track, Album, Artist } from '@/types/music';
+import type {
+  RawLibrary,
+  RawLibraryAlbum,
+  RawLibraryTrack,
+  RawAlbumFile,
+  Track,
+  Album,
+  Artist,
+} from '@/types/music';
 
-const LIBRARY_URL =
-  'https://cdn.jsdelivr.net/gh/gajala-sonic-solutions/m4a-db/generated/library.json';
+// ─── Constants ────────────────────────────────────────────────────────────────
+const REPO_BASE =
+  'https://raw.githubusercontent.com/gajala-sonic-solutions/m4a-db/main/';
+const LIBRARY_URL = `${REPO_BASE}library.json`;
+
+// ─── In-memory caches ─────────────────────────────────────────────────────────
+let libraryCache: { albums: Album[]; artists: Artist[] } | null = null;
+// albumId → Track[]
+const albumTracksCache = new Map<string, Track[]>();
 
 // ─── Slugify ──────────────────────────────────────────────────────────────────
 export function slugify(str: string): string {
@@ -11,31 +26,40 @@ export function slugify(str: string): string {
     .replace(/^-|-$/g, '');
 }
 
-// ─── Normalize ───────────────────────────────────────────────────────────────
-function normalizeAlbum(raw: RawLibraryAlbum): Album {
-  const tracks: Track[] = raw.tracks.map((rt) => ({
-    id: `${raw.id}--${rt.track}`,
-    title: rt.title,
-    artists: rt.artists,
-    artist: rt.artists.join(', '),
-    album: raw.title,
-    albumId: raw.id,
-    trackNumber: rt.track,
-    coverUrl: raw.cover,
-    streamUrl: rt.url,
-    year: raw.year,
-    composer: raw.composer,
-    duration: 0,
-  }));
+// ─── Normalize artist name (replace underscores with spaces) ──────────────────
+function normalizeArtistName(name: string): string {
+  return name.replace(/_/g, ' ');
+}
 
+// ─── Build Album stub from raw library entry ──────────────────────────────────
+function buildAlbumStub(raw: RawLibraryAlbum): Album {
   return {
     id: raw.id,
     title: raw.title,
-    composer: raw.composer,
+    composer: normalizeArtistName(raw.artist),
     year: raw.year,
     coverUrl: raw.cover,
-    tracks,
-    trackCount: tracks.length,
+    tracks: [],
+    trackCount: 0,        // updated after tracks are fetched
+    tracksFile: raw.tracksFile,
+  };
+}
+
+// ─── Normalize a raw track into a Track ───────────────────────────────────────
+function normalizeTrack(rt: RawLibraryTrack, album: Album): Track {
+  return {
+    id: `${album.id}--${rt.track}`,
+    title: rt.title,
+    artists: rt.artists,
+    artist: rt.artists.join(', '),
+    album: album.title,
+    albumId: album.id,
+    trackNumber: rt.track,
+    coverUrl: album.coverUrl,
+    streamUrl: rt.url,
+    year: album.year,
+    composer: album.composer,
+    duration: 0,
   };
 }
 
@@ -44,7 +68,7 @@ export function buildArtistIndex(albums: Album[]): Artist[] {
   const map = new Map<string, Artist>();
 
   for (const album of albums) {
-    // Register composer as an artist with composerAlbumIds
+    // Register composer as an artist
     const composerId = slugify(album.composer);
     if (!map.has(composerId)) {
       map.set(composerId, {
@@ -78,12 +102,8 @@ export function buildArtistIndex(albums: Album[]): Artist[] {
           });
         }
         const entry = map.get(artistId)!;
-        if (!entry.trackIds.includes(track.id)) {
-          entry.trackIds.push(track.id);
-        }
-        if (!entry.albumIds.includes(album.id)) {
-          entry.albumIds.push(album.id);
-        }
+        if (!entry.trackIds.includes(track.id)) entry.trackIds.push(track.id);
+        if (!entry.albumIds.includes(album.id)) entry.albumIds.push(album.id);
       }
     }
   }
@@ -91,19 +111,60 @@ export function buildArtistIndex(albums: Album[]): Artist[] {
   return Array.from(map.values());
 }
 
-// ─── Fetch & Parse ───────────────────────────────────────────────────────────
+// ─── Fetch library.json → Album stubs (no tracks yet) ────────────────────────
 export async function fetchLibrary(): Promise<{
   albums: Album[];
   tracks: Track[];
   artists: Artist[];
 }> {
-  const res = await fetch(LIBRARY_URL);
-  if (!res.ok) throw new Error(`Failed to fetch library: ${res.status}`);
-  const raw: RawLibrary = await res.json();
+  // Return from cache if available
+  if (libraryCache) {
+    const cachedTracks = Array.from(albumTracksCache.values()).flat();
+    return {
+      albums: libraryCache.albums,
+      tracks: cachedTracks,
+      artists: libraryCache.artists,
+    };
+  }
 
-  const albums = raw.albums.map(normalizeAlbum);
-  const tracks = albums.flatMap((a) => a.tracks);
+  const res = await fetch(LIBRARY_URL);
+  if (!res.ok) throw new Error('Unable to load music library');
+
+  const raw: RawLibrary = await res.json();
+  const albums = raw.albums.map(buildAlbumStub);
   const artists = buildArtistIndex(albums);
 
-  return { albums, tracks, artists };
+  libraryCache = { albums, artists };
+
+  return { albums, tracks: [], artists };
+}
+
+// ─── Fetch tracks for a single album (lazy, cached) ──────────────────────────
+export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
+  if (!album.tracksFile) {
+    throw new Error(`Album ${album.id} has no tracksFile`);
+  }
+
+  // Return from cache
+  if (albumTracksCache.has(album.id)) {
+    return albumTracksCache.get(album.id)!;
+  }
+
+  const url = `${REPO_BASE}${album.tracksFile}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error(`Failed to load tracks for "${album.title}": ${res.status}`);
+  }
+
+  const data: RawAlbumFile = await res.json();
+  const tracks = (data.tracks ?? []).map((rt) => normalizeTrack(rt, album));
+
+  albumTracksCache.set(album.id, tracks);
+  return tracks;
+}
+
+// ─── Clear caches (for testing / forced refresh) ─────────────────────────────
+export function clearLibraryCache(): void {
+  libraryCache = null;
+  albumTracksCache.clear();
 }

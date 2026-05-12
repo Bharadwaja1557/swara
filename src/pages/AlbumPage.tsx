@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
@@ -12,7 +13,6 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const isActive = currentTrack?.id === track.id;
 
-  // Cap stagger at 10 to stay within defined utilities
   const staggerIdx = Math.min(index + 1, 10);
 
   return (
@@ -70,12 +70,33 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
 const AlbumPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { albums, loading, loaded } = useLibraryStore();
+  const { albums, loading: libraryLoading, loaded, loadAlbumTracks } = useLibraryStore();
   const { playAlbum, playTrack } = usePlayerStore();
+
+  const [tracksLoading, setTracksLoading] = useState(false);
+  const [tracksError, setTracksError] = useState<string | null>(null);
 
   const album = albums.find((a) => a.id === id);
 
-  if (loading && !loaded) {
+  // Lazy-load this album's tracks when we land on the page
+  useEffect(() => {
+    if (!id || !loaded) return;
+    const current = albums.find((a) => a.id === id);
+    if (!current || current.tracks.length > 0) return;
+
+    setTracksLoading(true);
+    setTracksError(null);
+
+    loadAlbumTracks(id)
+      .then((tracks) => {
+        if (tracks.length === 0) setTracksError('No tracks available for this album.');
+      })
+      .catch(() => setTracksError('Unable to load tracks for this album.'))
+      .finally(() => setTracksLoading(false));
+  }, [id, loaded]);
+
+  // Library loading spinner
+  if (libraryLoading && !loaded) {
     return (
       <div className="flex justify-center items-center min-h-[60vh]">
         <div className="w-6 h-6 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
@@ -98,8 +119,11 @@ const AlbumPage = () => {
     );
   }
 
-  const handlePlayAll = () => playAlbum(album.tracks, 0);
+  const handlePlayAll = () => {
+    if (album.tracks.length > 0) playAlbum(album.tracks, 0);
+  };
   const handleShuffle = () => {
+    if (album.tracks.length === 0) return;
     const shuffled = [...album.tracks].sort(() => Math.random() - 0.5);
     playTrack(shuffled[0], shuffled);
   };
@@ -150,7 +174,7 @@ const AlbumPage = () => {
             {album.composer}
           </button>
           <p className="text-xs text-swara-muted mt-0.5">
-            {album.year} · {album.trackCount} songs
+            {album.year} · {album.trackCount > 0 ? `${album.trackCount} songs` : '…'}
           </p>
         </div>
 
@@ -159,11 +183,13 @@ const AlbumPage = () => {
           <button
             type="button"
             onClick={handlePlayAll}
+            disabled={tracksLoading || album.tracks.length === 0}
             className={[
               'flex-1 flex items-center justify-center gap-2',
               'py-2.5 rounded-xl',
               'bg-swara-accent text-swara-bg text-sm font-semibold',
               'active:scale-[0.97] transition-transform duration-100',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}
             aria-label="Play album"
           >
@@ -175,11 +201,13 @@ const AlbumPage = () => {
           <button
             type="button"
             onClick={handleShuffle}
+            disabled={tracksLoading || album.tracks.length === 0}
             className={[
               'flex-1 flex items-center justify-center gap-2',
               'py-2.5 rounded-xl',
               'bg-swara-elevated border border-swara-border text-swara-text text-sm font-medium',
               'active:scale-[0.97] transition-transform duration-100',
+              'disabled:opacity-50 disabled:cursor-not-allowed',
             ].join(' ')}
             aria-label="Shuffle album"
           >
@@ -193,11 +221,19 @@ const AlbumPage = () => {
         {/* Divider */}
         <div className="h-px bg-swara-border opacity-60 mb-2" aria-hidden="true" />
 
-        {/* Track list */}
+        {/* Track list or loading state */}
         <div>
-          {album.tracks.map((track, i) => (
-            <TrackItem key={track.id} track={track} index={i} queue={album.tracks} />
-          ))}
+          {tracksLoading ? (
+            <div className="flex justify-center py-10">
+              <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
+            </div>
+          ) : tracksError ? (
+            <p className="text-swara-muted text-sm text-center py-10">{tracksError}</p>
+          ) : (
+            album.tracks.map((track, i) => (
+              <TrackItem key={track.id} track={track} index={i} queue={album.tracks} />
+            ))
+          )}
         </div>
       </div>
 

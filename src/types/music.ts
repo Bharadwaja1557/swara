@@ -1,7 +1,7 @@
 // ─── Music Domain Types ───────────────────────────────────────────────────────
 
 /**
- * A single playable track — normalized from library.json
+ * A single playable track — normalized from album JSON
  */
 export interface Track {
   id: string;
@@ -20,6 +20,7 @@ export interface Track {
 
 /**
  * An album / release — normalized from library.json
+ * tracksFile is preserved for lazy loading of tracks
  */
 export interface Album {
   id: string;
@@ -29,6 +30,7 @@ export interface Album {
   coverUrl: string;
   tracks: Track[];
   trackCount: number;
+  tracksFile?: string;      // path relative to repo root, used for lazy loading
 }
 
 /**
@@ -61,7 +63,7 @@ export interface QuickPick {
 export type NavTab = 'home' | 'search' | 'library';
 
 /**
- * Raw library.json track shape
+ * Raw track shape inside an album JSON file (albums/*.json)
  */
 export interface RawLibraryTrack {
   track: number;
@@ -71,23 +73,30 @@ export interface RawLibraryTrack {
 }
 
 /**
- * Raw library.json album shape
+ * Raw album shape inside library.json
+ * Note: `artist` (not `composer`) and `tracksFile` instead of embedded tracks
  */
 export interface RawLibraryAlbum {
   id: string;
   title: string;
-  composer: string;
+  artist: string;           // may contain underscores e.g. "Shashwat_Sachdev"
   year: number;
   cover: string;
-  tracks: RawLibraryTrack[];
+  tracksFile: string;       // relative path e.g. "albums/SS-Dhurandhar-2025.json"
 }
 
 /**
- * Raw library.json root shape
+ * Raw library.json root shape (from m4a-db)
  */
 export interface RawLibrary {
-  generatedAt: string;
   albums: RawLibraryAlbum[];
+}
+
+/**
+ * Raw album file shape (albums/*.json from m4a-db)
+ */
+export interface RawAlbumFile {
+  tracks: RawLibraryTrack[];
 }
 
 /**

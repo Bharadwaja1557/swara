@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
@@ -160,15 +160,32 @@ const BrowseGroup = ({ groupKey, albums }: BrowseGroupProps) => (
 // ─── SearchPage ───────────────────────────────────────────────────────────────
 
 const SearchPage = () => {
-  const [query, setQuery]             = useState('');
+  const [query, setQuery]               = useState('');
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
-  const [browseMode, setBrowseMode]   = useState<BrowseMode>(null);
+  const [browseMode, setBrowseMode]     = useState<BrowseMode>(null);
+  const [tracksIndexing, setTracksIndexing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { tracks, albums, artists, loading, loaded } = useLibraryStore();
+  const { tracks, albums, artists, loading, loaded, loadAlbumTracks } = useLibraryStore();
 
   const q = query.trim().toLowerCase();
   const isYearQuery = /^\d{4}$/.test(q);
+
+  // ── Eagerly load all album tracks when user starts searching songs ─────────
+  const loadAllTracks = useCallback(async () => {
+    const unloaded = albums.filter((a) => a.tracks.length === 0);
+    if (unloaded.length === 0) return;
+    setTracksIndexing(true);
+    await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
+    setTracksIndexing(false);
+  }, [albums, loadAlbumTracks]);
+
+  useEffect(() => {
+    if (!q || !loaded) return;
+    // Only need to load tracks for song-level search
+    if (activeFilter === 'Albums' || activeFilter === 'Artists') return;
+    loadAllTracks();
+  }, [q, loaded, activeFilter, loadAllTracks]);
 
   // ── Filter helpers ─────────────────────────────────────────────────────────
   const matchedTracks = useMemo(() => {
@@ -205,8 +222,8 @@ const SearchPage = () => {
   const hasResults =
     matchedTracks.length > 0 || matchedAlbums.length > 0 || matchedArtists.length > 0;
 
-  const showSongs   = activeFilter === 'All' || activeFilter === 'Songs'   || (activeFilter === 'Year' || isYearQuery);
-  const showAlbums  = activeFilter === 'All' || activeFilter === 'Albums'  || (activeFilter === 'Year' || isYearQuery);
+  const showSongs   = activeFilter === 'All' || activeFilter === 'Songs' || activeFilter === 'Year';
+  const showAlbums  = activeFilter === 'All' || activeFilter === 'Albums' || activeFilter === 'Year';
   const showArtists = activeFilter === 'All' || activeFilter === 'Artists';
 
   // ── Browse computations ────────────────────────────────────────────────────
@@ -230,7 +247,6 @@ const SearchPage = () => {
         if (!map[key]) map[key] = [];
         map[key].push(a);
       });
-      // Sort years descending
       return Object.entries(map).sort(([a], [b]) => Number(b) - Number(a));
     }
 
@@ -248,7 +264,6 @@ const SearchPage = () => {
     return null;
   }, [browseMode, albums, q]);
 
-  // ── Clear query → also clear browse ───────────────────────────────────────
   const handleClear = () => {
     setQuery('');
     setBrowseMode(null);
@@ -330,9 +345,14 @@ const SearchPage = () => {
       {/* Content */}
       <div className="px-4 pb-4">
         {/* Loading state */}
-        {loading && (
+        {(loading || tracksIndexing) && (
           <div className="flex justify-center mt-16">
-            <div className="w-6 h-6 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
+            <div className="flex flex-col items-center gap-3">
+              <div className="w-6 h-6 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
+              {tracksIndexing && (
+                <p className="text-xs text-swara-dim">Indexing tracks…</p>
+              )}
+            </div>
           </div>
         )}
 
@@ -342,7 +362,6 @@ const SearchPage = () => {
             {/* Browse-by mode results */}
             {browseMode && browseGrouped && (
               <div className="mt-4">
-                {/* Back button */}
                 <button
                   type="button"
                   onClick={() => setBrowseMode(null)}
@@ -360,7 +379,7 @@ const SearchPage = () => {
               </div>
             )}
 
-            {/* Browse cards — show when no browse mode selected */}
+            {/* Browse cards */}
             {!browseMode && (
               <>
                 <p className="text-[0.6875rem] font-semibold text-swara-muted tracking-widest uppercase mt-5 mb-3 px-1 font-display">
@@ -398,7 +417,6 @@ const SearchPage = () => {
                   />
                 </div>
 
-                {/* Empty hint */}
                 <div className="flex flex-col items-center justify-center mt-8 gap-3">
                   <div className="w-14 h-14 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-swara-dim" aria-hidden="true">
@@ -415,7 +433,7 @@ const SearchPage = () => {
                     Search your library
                   </p>
                   <p className="text-xs text-swara-dim text-center max-w-[200px]">
-                    Find any song, album, artist, or type a year like 1965
+                    Find any song, album, artist, or type a year like 2025
                   </p>
                 </div>
               </>
@@ -424,21 +442,21 @@ const SearchPage = () => {
         )}
 
         {/* No results */}
-        {!loading && loaded && q && !hasResults && (
+        {!loading && !tracksIndexing && loaded && q && !hasResults && (
           <div className="flex flex-col items-center justify-center mt-16 gap-3">
             <p className="text-sm font-medium text-swara-muted text-center">
               No results for "{query}"
             </p>
             <p className="text-xs text-swara-dim text-center">
               {activeFilter === 'Year' || isYearQuery
-                ? 'Try a 4-digit year like 1965 or 2001'
+                ? 'Try a 4-digit year like 2025'
                 : 'Try a different spelling or keyword'}
             </p>
           </div>
         )}
 
         {/* Results */}
-        {!loading && loaded && q && hasResults && (
+        {!loading && !tracksIndexing && loaded && q && hasResults && (
           <div className="mt-2">
             {showSongs && matchedTracks.length > 0 && (
               <Section title={activeFilter === 'Year' || isYearQuery ? `Songs from ${q}` : 'Songs'}>

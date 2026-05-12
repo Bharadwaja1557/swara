@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
@@ -86,7 +86,7 @@ const AlbumCard = ({ album }: { album: Album }) => {
           {album.title}
         </p>
         <p className="text-[0.6875rem] text-swara-muted truncate">
-          {album.year} · {album.trackCount} tracks
+          {album.year} · {album.trackCount > 0 ? `${album.trackCount} tracks` : '…'}
         </p>
       </div>
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
@@ -101,11 +101,22 @@ const AlbumCard = ({ album }: { album: Album }) => {
 const ArtistPage = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { artists, tracks, albums, loading, loaded } = useLibraryStore();
+  const { artists, tracks, albums, loading, loaded, loadAlbumTracks } = useLibraryStore();
   const [showAllTracks, setShowAllTracks] = useState(false);
   const [showAllAlbums, setShowAllAlbums] = useState(false);
 
   const artist = artists.find((a) => a.id === id);
+
+  // Pre-load tracks for all this artist's albums so the track list is populated
+  useEffect(() => {
+    if (!artist || !loaded) return;
+    artist.albumIds.forEach((albumId) => {
+      const album = albums.find((a) => a.id === albumId);
+      if (album && album.tracks.length === 0) {
+        loadAlbumTracks(albumId).catch(() => {});
+      }
+    });
+  }, [artist, loaded, albums, loadAlbumTracks]);
 
   if (loading && !loaded) {
     return (
@@ -130,8 +141,13 @@ const ArtistPage = () => {
     );
   }
 
-  const artistTracks = artist.trackIds.map((id) => tracks.find((t) => t.id === id)).filter(Boolean) as Track[];
-  const artistAlbums = artist.composerAlbumIds.map((id) => albums.find((a) => a.id === id)).filter(Boolean) as Album[];
+  const artistTracks = artist.trackIds
+    .map((tid) => tracks.find((t) => t.id === tid))
+    .filter(Boolean) as Track[];
+
+  const artistAlbums = artist.composerAlbumIds
+    .map((aid) => albums.find((a) => a.id === aid))
+    .filter(Boolean) as Album[];
 
   const visibleTracks = showAllTracks ? artistTracks : artistTracks.slice(0, INITIAL_COUNT);
   const visibleAlbums = showAllAlbums ? artistAlbums : artistAlbums.slice(0, INITIAL_COUNT);
@@ -171,8 +187,11 @@ const ArtistPage = () => {
               {artist.name}
             </h2>
             <p className="text-sm text-swara-muted mt-0.5">
-              {artistTracks.length} song{artistTracks.length !== 1 ? 's' : ''}
-              {artistAlbums.length > 0 && ` · ${artistAlbums.length} album${artistAlbums.length !== 1 ? 's' : ''}`}
+              {artistTracks.length > 0
+                ? `${artistTracks.length} song${artistTracks.length !== 1 ? 's' : ''}`
+                : 'Loading tracks…'}
+              {artistAlbums.length > 0 &&
+                ` · ${artistAlbums.length} album${artistAlbums.length !== 1 ? 's' : ''}`}
             </p>
           </div>
         </div>
@@ -200,7 +219,7 @@ const ArtistPage = () => {
           </div>
         )}
 
-        {/* Albums section (only if composer) */}
+        {/* Albums section */}
         {artistAlbums.length > 0 && (
           <div className="mb-6">
             <h3 className="text-[0.6875rem] font-semibold text-swara-muted tracking-widest uppercase mb-2 px-1">
@@ -220,6 +239,13 @@ const ArtistPage = () => {
                 {showAllAlbums ? 'Show less' : `Show ${artistAlbums.length - INITIAL_COUNT} more`}
               </button>
             )}
+          </div>
+        )}
+
+        {/* No content yet */}
+        {artistTracks.length === 0 && artistAlbums.length === 0 && (
+          <div className="flex justify-center py-10">
+            <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
           </div>
         )}
       </div>
