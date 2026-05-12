@@ -53,7 +53,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       set({ duration: a.duration });
     };
     a.onended = () => {
-      const { repeat, queue, currentIndex, isShuffle } = get();
+      // const { repeat, queue, currentIndex, isShuffle } = get();
+      const { repeat, queue, currentIndex } = get();
       if (repeat === 'one') {
         a.currentTime = 0;
         a.play().catch(() => {});

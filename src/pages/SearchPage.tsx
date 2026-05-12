@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
 import type { Track, Album, Artist } from '@/types/music';
-import { slugify } from '@/utils/library';
+// import { slugify } from '@/utils/library';
 
 // ─── Filter chip type ─────────────────────────────────────────────────────────
 type Filter = 'All' | 'Songs' | 'Albums' | 'Artists';

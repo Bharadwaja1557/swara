@@ -90,7 +90,7 @@ const FullscreenPlayer = () => {
 
   const nextTracks = queue.slice(currentIndex + 1).slice(0, 5);
 
-  const translateY = isExpanded ? dragOffset : '100%';
+  // const translateY = isExpanded ? dragOffset : '100%';
 
   return (
     <div
