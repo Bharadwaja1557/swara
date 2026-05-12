@@ -130,8 +130,8 @@ const ArtistPage = () => {
     );
   }
 
-  const artistTracks = artist.trackIds.map((id: string) => tracks.find((t) => t.id === id)).filter(Boolean) as Track[];
-  const artistAlbums = artist.composerAlbumIds.map((id: string) => albums.find((a) => a.id === id)).filter(Boolean) as Album[];
+  const artistTracks = artist.trackIds.map((id) => tracks.find((t) => t.id === id)).filter(Boolean) as Track[];
+  const artistAlbums = artist.composerAlbumIds.map((id) => albums.find((a) => a.id === id)).filter(Boolean) as Album[];
 
   const visibleTracks = showAllTracks ? artistTracks : artistTracks.slice(0, INITIAL_COUNT);
   const visibleAlbums = showAllAlbums ? artistAlbums : artistAlbums.slice(0, INITIAL_COUNT);
