@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppLayout from '@/layouts/AppLayout';
 import HomePage from '@/pages/HomePage';
 import SearchPage from '@/pages/SearchPage';
@@ -18,7 +18,7 @@ import LibraryPage from '@/pages/LibraryPage';
  */
 const App = () => {
   return (
-    <BrowserRouter>
+    <HashRouter>
       <Routes>
         {/* All routes share the persistent AppLayout (with BottomNav) */}
         <Route element={<AppLayout />}>
@@ -29,7 +29,7 @@ const App = () => {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
-    </BrowserRouter>
+    </HashRouter>
   );
 };
 
