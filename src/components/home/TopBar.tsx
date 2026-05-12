@@ -1,22 +1,21 @@
 /**
  * TopBar
  *
- * Home screen top bar with:
- *   Left  → "Swara" display logo (Cormorant, italic)
- *   Right → Profile icon button (no functionality yet)
+ * Home screen top bar.
+ * Updated to use Inter throughout (no Cormorant).
  */
 const TopBar = () => {
   return (
     <header className="flex items-center justify-between px-5 pt-5 pb-2">
-      {/* Swara logotype */}
+      {/* Swara logotype — Inter, tight, premium */}
       <div className="flex flex-col leading-none">
         <span
-          className="font-display italic text-[2rem] font-medium text-swara-text tracking-wide leading-none"
+          className="text-[1.75rem] font-bold text-swara-text tracking-[-0.04em] leading-none"
           aria-label="Swara"
         >
-          Swara
+          swara
         </span>
-        <span className="text-[9px] font-body font-medium tracking-[0.25em] uppercase text-swara-muted mt-0.5 ml-0.5">
+        <span className="text-[8px] font-semibold tracking-[0.3em] uppercase text-swara-muted mt-1 ml-0.5">
           Music
         </span>
       </div>
@@ -29,7 +28,7 @@ const TopBar = () => {
           'flex items-center justify-center',
           'text-swara-muted hover:text-swara-text',
           'transition-colors duration-200',
-          'active:scale-95 transition-transform',
+          'active:scale-95',
         ].join(' ')}
         aria-label="Open profile"
         type="button"

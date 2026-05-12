@@ -62,13 +62,13 @@ const QuickPickCard = ({ pick }: QuickPickCardProps) => {
 
       {/* Text */}
       <div className="flex-1 min-w-0">
-        <p className="font-body text-[0.8125rem] font-semibold text-swara-text truncate leading-snug">
+        <p className="text-[0.8125rem] font-semibold text-swara-text truncate leading-snug">
           {pick.title}
         </p>
-        <p className="font-body text-[0.6875rem] text-swara-muted mt-0.5 truncate">
+        <p className="text-[0.6875rem] text-swara-muted mt-0.5 truncate">
           {pick.subtitle}
         </p>
-        <p className="font-body text-[0.625rem] text-swara-dim mt-1">
+        <p className="text-[0.625rem] text-swara-dim mt-1">
           {pick.trackCount} tracks
         </p>
       </div>
@@ -110,7 +110,7 @@ const QuickPicks = ({ picks }: QuickPicksProps) => {
       {/* Section header */}
       <h2
         id="quick-picks-heading"
-        className="font-body text-base font-semibold text-swara-text tracking-[-0.01em] mb-4"
+        className="text-base font-semibold text-swara-text tracking-[-0.01em] mb-4"
       >
         Quick Picks
       </h2>

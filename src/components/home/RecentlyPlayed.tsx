@@ -43,13 +43,13 @@ const TrackCard = ({ track }: TrackCardProps) => {
 
       {/* Track info */}
       <div className="flex flex-col gap-0.5 px-0.5">
-        <p className="font-body text-[0.8125rem] font-medium text-swara-text leading-snug truncate">
+        <p className="text-[0.8125rem] font-medium text-swara-text leading-snug truncate">
           {track.title}
         </p>
-        <p className="font-body text-[0.6875rem] text-swara-muted truncate leading-snug">
+        <p className="text-[0.6875rem] text-swara-muted truncate leading-snug">
           {track.artist}
         </p>
-        <p className="font-body text-[0.625rem] text-swara-dim mt-0.5">
+        <p className="text-[0.625rem] text-swara-dim mt-0.5">
           {formatDuration(track.duration)}
         </p>
       </div>
@@ -76,12 +76,12 @@ const RecentlyPlayed = ({ tracks }: RecentlyPlayedProps) => {
       <div className="flex items-center justify-between px-5 mb-4">
         <h2
           id="recently-played-heading"
-          className="font-body text-base font-semibold text-swara-text tracking-[-0.01em]"
+          className="text-base font-semibold text-swara-text tracking-[-0.01em]"
         >
           Recently Played
         </h2>
         <button
-          className="font-body text-[0.75rem] text-swara-accent font-medium hover:text-swara-accent-bright transition-colors"
+          className="text-[0.75rem] text-swara-accent font-medium hover:text-swara-accent-bright transition-colors"
           type="button"
           aria-label="See all recently played"
         >

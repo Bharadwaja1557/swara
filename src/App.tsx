@@ -3,29 +3,32 @@ import AppLayout from '@/layouts/AppLayout';
 import HomePage from '@/pages/HomePage';
 import SearchPage from '@/pages/SearchPage';
 import LibraryPage from '@/pages/LibraryPage';
+import ArtistPage from '@/pages/ArtistPage';
+import AlbumPage from '@/pages/AlbumPage';
 
 /**
  * App
  *
- * Sets up client-side routing with React Router v6.
+ * HashRouter kept intentionally for GitHub Pages compatibility.
  *
  * Route tree:
- *   /             → AppLayout
- *     /           → HomePage
- *     /search     → SearchPage
- *     /library    → LibraryPage
- *     *           → redirect to /
+ *   /              → HomePage
+ *   /search        → SearchPage
+ *   /library       → LibraryPage
+ *   /album/:id     → AlbumPage
+ *   /artist/:id    → ArtistPage
+ *   *              → redirect to /
  */
 const App = () => {
   return (
     <HashRouter>
       <Routes>
-        {/* All routes share the persistent AppLayout (with BottomNav) */}
         <Route element={<AppLayout />}>
           <Route index element={<HomePage />} />
           <Route path="/search" element={<SearchPage />} />
           <Route path="/library" element={<LibraryPage />} />
-          {/* Catch-all: redirect unknown routes to home */}
+          <Route path="/album/:id" element={<AlbumPage />} />
+          <Route path="/artist/:id" element={<ArtistPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>

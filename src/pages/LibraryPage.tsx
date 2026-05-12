@@ -17,7 +17,7 @@ const LibraryPage = () => {
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
       {/* Header */}
       <div className="px-5 pt-5">
-        <h1 className="font-body text-xl font-semibold text-swara-text tracking-[-0.01em]">
+        <h1 className="text-xl font-semibold text-swara-text tracking-[-0.01em]">
           My Library
         </h1>
 
@@ -29,7 +29,7 @@ const LibraryPage = () => {
               onClick={() => setActiveTab(tab)}
               className={[
                 'flex-shrink-0 px-4 py-1.5 rounded-full',
-                'font-body text-[0.8125rem] font-medium',
+                'text-[0.8125rem] font-medium',
                 'border transition-all duration-200',
                 activeTab === tab
                   ? 'bg-swara-accent border-swara-accent text-swara-bg'
@@ -59,10 +59,10 @@ const LibraryPage = () => {
             />
           </svg>
         </div>
-        <p className="font-body text-sm font-medium text-swara-muted text-center">
+        <p className="text-sm font-medium text-swara-muted text-center">
           Library is coming soon
         </p>
-        <p className="font-body text-xs text-swara-dim text-center max-w-[220px]">
+        <p className="text-xs text-swara-dim text-center max-w-[220px]">
           Your albums, playlists, and artists will live here
         </p>
       </div>

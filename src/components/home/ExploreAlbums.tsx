@@ -18,13 +18,13 @@ const AlbumCard = ({ album }: AlbumCardProps) => {
         'active:scale-[0.97] transition-transform duration-150',
       ].join(' ')}
       type="button"
-      aria-label={`Open ${album.title} by ${album.artist}`}
+      aria-label={`Open ${album.title} by ${album.composer}`}
     >
       {/* Cover */}
       <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated shadow-card">
         <img
           src={album.coverUrl}
-          alt={`${album.title} by ${album.artist}`}
+          alt={`${album.title} by ${album.composer}`}
           className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
           loading="lazy"
           decoding="async"
@@ -35,13 +35,13 @@ const AlbumCard = ({ album }: AlbumCardProps) => {
 
       {/* Album info */}
       <div className="flex flex-col gap-0.5 px-0.5">
-        <p className="font-body text-[0.8125rem] font-semibold text-swara-text truncate leading-snug">
+        <p className="text-[0.8125rem] font-semibold text-swara-text truncate leading-snug">
           {album.title}
         </p>
-        <p className="font-body text-[0.6875rem] text-swara-muted truncate">
-          {album.artist}
+        <p className="text-[0.6875rem] text-swara-muted truncate">
+          {album.composer}
         </p>
-        <p className="font-body text-[0.625rem] text-swara-dim mt-0.5">
+        <p className="text-[0.625rem] text-swara-dim mt-0.5">
           {album.year} · {album.trackCount} tracks
         </p>
       </div>
@@ -82,7 +82,7 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
       <div className="flex items-center justify-between mb-4">
         <h2
           id="explore-albums-heading"
-          className="font-body text-base font-semibold text-swara-text tracking-[-0.01em]"
+          className="text-base font-semibold text-swara-text tracking-[-0.01em]"
         >
           Explore Albums
         </h2>
@@ -93,7 +93,7 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
           disabled={spinning}
           className={[
             'flex items-center gap-1.5',
-            'font-body text-[0.75rem] font-medium text-swara-muted',
+            'text-[0.75rem] font-medium text-swara-muted',
             'hover:text-swara-accent transition-colors duration-200',
             'active:scale-95 transition-transform',
             'disabled:opacity-50 disabled:cursor-not-allowed',

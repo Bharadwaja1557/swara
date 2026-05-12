@@ -1,7 +1,5 @@
 import { NavLink } from 'react-router-dom';
 
-// ─── SVG Icons ────────────────────────────────────────────────────────────────
-
 const HomeIcon = ({ filled }: { filled: boolean }) => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
     {filled ? (
@@ -67,36 +65,19 @@ const LibraryIcon = ({ filled }: { filled: boolean }) => (
       <>
         <path d="M2 6h4v15H2z" fill="currentColor" />
         <path d="M7 3h4v18H7z" fill="currentColor" />
-        <path
-          d="m13.45 3.07 3.87 14.44-3.87.86L9.58 3.93l3.87-.86Z"
-          fill="currentColor"
-        />
-        <path
-          d="M19.1 4.35a1.88 1.88 0 1 0-1 3.62 1.88 1.88 0 0 0 1-3.62Z"
-          fill="currentColor"
-        />
+        <path d="m13.45 3.07 3.87 14.44-3.87.86L9.58 3.93l3.87-.86Z" fill="currentColor" />
+        <path d="M19.1 4.35a1.88 1.88 0 1 0-1 3.62 1.88 1.88 0 0 0 1-3.62Z" fill="currentColor" />
       </>
     ) : (
       <>
         <path d="M2 6h4v15H2z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
         <path d="M7 3h4v18H7z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-        <path
-          d="m13.45 3.07 3.87 14.44-3.87.86L9.58 3.93l3.87-.86Z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinejoin="round"
-        />
-        <path
-          d="M19.1 4.35a1.88 1.88 0 1 0-1 3.62 1.88 1.88 0 0 0 1-3.62Z"
-          stroke="currentColor"
-          strokeWidth="1.5"
-        />
+        <path d="m13.45 3.07 3.87 14.44-3.87.86L9.58 3.93l3.87-.86Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+        <path d="M19.1 4.35a1.88 1.88 0 1 0-1 3.62 1.88 1.88 0 0 0 1-3.62Z" stroke="currentColor" strokeWidth="1.5" />
       </>
     )}
   </svg>
 );
-
-// ─── Nav Item ─────────────────────────────────────────────────────────────────
 
 interface NavItemProps {
   to: string;
@@ -125,12 +106,7 @@ const NavItem = ({ to, label, icon, end }: NavItemProps) => (
         <span className="transition-transform duration-200 ease-out">
           {icon(isActive)}
         </span>
-        <span
-          className={[
-            'text-[10px] font-body font-medium tracking-wide leading-none',
-            'transition-colors duration-200',
-          ].join(' ')}
-        >
+        <span className="text-[10px] font-medium tracking-wide leading-none transition-colors duration-200">
           {label}
         </span>
       </>
@@ -138,13 +114,6 @@ const NavItem = ({ to, label, icon, end }: NavItemProps) => (
   </NavLink>
 );
 
-// ─── BottomNav ────────────────────────────────────────────────────────────────
-
-/**
- * Persistent bottom navigation bar.
- * Fixed to the bottom of the viewport, mobile-first.
- * Active route is highlighted in swara-accent (warm gold).
- */
 export const BottomNav = () => {
   return (
     <nav
@@ -153,7 +122,7 @@ export const BottomNav = () => {
         'bg-swara-surface border-t border-swara-border',
         'shadow-nav',
         'flex items-stretch',
-        'pb-safe', // handle notched devices
+        'pb-safe',
       ].join(' ')}
       aria-label="Primary navigation"
     >
