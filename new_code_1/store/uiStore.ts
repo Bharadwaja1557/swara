@@ -15,13 +15,12 @@ interface UIStore {
 
 // ─── Store ────────────────────────────────────────────────────────────────────
 
-export const useUIStore = create<UIStore>((set, get) => ({
-  // Initialize with a random selection on first load
+export const useUIStore = create<UIStore>((set) => ({
+  // Initialize with deterministic selection
   albumIndices: pickFourAlbumIndices(),
 
   shuffleAlbums: () => {
-    const current = get().albumIndices;
-    const next = pickFourAlbumIndices(current);
+    const next = pickFourAlbumIndices();
     set({ albumIndices: next });
   },
 }));
