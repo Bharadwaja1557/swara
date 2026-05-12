@@ -1,13 +1,26 @@
-import type { Album, Artist, RawAlbumData, RawLibrary, RawLibraryAlbum, Track } from '@/types/music';
+import type {
+  Album,
+  Artist,
+  RawAlbumData,
+  RawLibrary,
+  RawLibraryAlbum,
+  Track,
+} from '@/types/music';
 
-const BASE_URL = 'https://raw.githubusercontent.com/gajala-sonic-solutions/m4a-db/main';
+const BASE_URL =
+  'https://raw.githubusercontent.com/gajala-sonic-solutions/m4a-db/main';
+
 const LIBRARY_URL = `${BASE_URL}/library.json`;
 
 let libraryCache: Album[] | null = null;
+
 const albumTracksCache = new Map<string, Track[]>();
 
 export function slugify(str: string): string {
-  return str.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return str
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 function normalizeAlbum(raw: RawLibraryAlbum): Album {
@@ -23,8 +36,11 @@ function normalizeAlbum(raw: RawLibraryAlbum): Album {
   };
 }
 
-function normalizeTracks(album: Album, rawTracks: RawAlbumData): Track[] {
-  return rawTracks.tracks.map((track) => ({
+function normalizeTracks(
+  album: Album,
+  rawTracks: RawAlbumData
+): Track[] {
+  return rawTracks.tracks.map((track: any) => ({
     id: `${album.id}-${track.track}`,
     title: track.title,
     artists: track.artists,
@@ -41,7 +57,9 @@ function normalizeTracks(album: Album, rawTracks: RawAlbumData): Track[] {
 }
 
 export async function fetchLibrary(): Promise<Album[]> {
-  if (libraryCache) return libraryCache;
+  if (libraryCache) {
+    return libraryCache;
+  }
 
   const response = await fetch(LIBRARY_URL);
 
@@ -50,12 +68,15 @@ export async function fetchLibrary(): Promise<Album[]> {
   }
 
   const data: RawLibrary = await response.json();
+
   libraryCache = data.albums.map(normalizeAlbum);
 
-  return libraryCache;
+  return libraryCache ?? [];
 }
 
-export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
+export async function fetchAlbumTracks(
+  album: Album
+): Promise<Track[]> {
   if (albumTracksCache.has(album.id)) {
     return albumTracksCache.get(album.id)!;
   }
@@ -65,13 +86,16 @@ export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
   }
 
   try {
-    const response = await fetch(`${BASE_URL}/${album.tracksFile}`);
+    const response = await fetch(
+      `${BASE_URL}/${album.tracksFile}`
+    );
 
     if (!response.ok) {
       throw new Error('Album fetch failed');
     }
 
     const data: RawAlbumData = await response.json();
+
     const tracks = normalizeTracks(album, data);
 
     albumTracksCache.set(album.id, tracks);
@@ -82,7 +106,9 @@ export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
   }
 }
 
-export function buildArtistIndex(albums: Album[]): Artist[] {
+export function buildArtistIndex(
+  albums: Album[]
+): Artist[] {
   const map = new Map<string, Artist>();
 
   albums.forEach((album) => {

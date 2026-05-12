@@ -210,7 +210,7 @@ const AlbumPage = () => {
             <div className="py-6 text-center text-sm text-swara-muted">Loading tracks...</div>
           ) : tracks.length === 0 ? (
             <div className="py-6 text-center text-sm text-swara-muted">No tracks available</div>
-          ) : tracks.map((track, i) => (
+          ) : tracks.map((track: Track, i: number) => (
             <TrackItem key={track.id} track={track} index={i} queue={tracks} />
           ))}
         </div>
