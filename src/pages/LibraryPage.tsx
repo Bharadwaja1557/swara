@@ -17,7 +17,7 @@ const LibraryPage = () => {
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
       {/* Header */}
       <div className="px-5 pt-5">
-        <h1 className="text-xl font-semibold text-swara-text tracking-[-0.01em]">
+        <h1 className="text-xl font-bold text-swara-text tracking-tight font-display">
           My Library
         </h1>
 

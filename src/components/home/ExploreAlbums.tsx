@@ -1,23 +1,36 @@
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { Album } from '@/types/music';
 import { pickRandom } from '@/utils/greeting';
 
 interface AlbumCardProps {
   album: Album;
+  index: number;
 }
+
+// Stagger class map — caps at 10 slots
+const STAGGER = ['stagger-1','stagger-2','stagger-3','stagger-4','stagger-5',
+                 'stagger-6','stagger-7','stagger-8','stagger-9','stagger-10'] as const;
 
 /**
  * Individual album card — cover dominant, info below.
+ * Navigates to /album/:id on click, animates in with stagger delay.
  */
-const AlbumCard = ({ album }: AlbumCardProps) => {
+const AlbumCard = ({ album, index }: AlbumCardProps) => {
+  const navigate = useNavigate();
+  const stagger  = STAGGER[Math.min(index, STAGGER.length - 1)];
+
   return (
     <button
       className={[
         'flex flex-col gap-2.5 text-left',
         'group cursor-pointer',
         'active:scale-[0.97] transition-transform duration-150',
+        'animate-card-in',
+        stagger,
       ].join(' ')}
       type="button"
+      onClick={() => navigate(`/album/${album.id}`)}
       aria-label={`Open ${album.title} by ${album.composer}`}
     >
       {/* Cover */}
@@ -29,13 +42,13 @@ const AlbumCard = ({ album }: AlbumCardProps) => {
           loading="lazy"
           decoding="async"
         />
-        {/* Subtle bottom gradient for text legibility if we ever overlay */}
+        {/* Subtle bottom gradient */}
         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
       </div>
 
       {/* Album info */}
       <div className="flex flex-col gap-0.5 px-0.5">
-        <p className="text-[0.8125rem] font-semibold text-swara-text truncate leading-snug">
+        <p className="text-[0.8125rem] font-semibold text-swara-text truncate leading-snug font-display tracking-tight">
           {album.title}
         </p>
         <p className="text-[0.6875rem] text-swara-muted truncate">
@@ -58,7 +71,7 @@ interface ExploreAlbumsProps {
 /**
  * ExploreAlbums
  *
- * Shows 4 randomly selected albums in a 2×2 grid.
+ * Shows 4 randomly selected albums in a 2×2 grid with stagger card animations.
  * A refresh button picks a new random set from the pool.
  */
 const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
@@ -66,12 +79,14 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
     pickRandom(albumPool, 4)
   );
   const [spinning, setSpinning] = useState(false);
+  // Bump key to remount cards and retrigger animations on shuffle
+  const [animKey, setAnimKey] = useState(0);
 
   const handleShuffle = useCallback(() => {
     setSpinning(true);
-    // Brief delay so the spin animation is visible
     setTimeout(() => {
       setVisible(pickRandom(albumPool, 4));
+      setAnimKey((k) => k + 1);
       setSpinning(false);
     }, 350);
   }, [albumPool]);
@@ -82,7 +97,7 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
       <div className="flex items-center justify-between mb-4">
         <h2
           id="explore-albums-heading"
-          className="text-base font-semibold text-swara-text tracking-[-0.01em]"
+          className="text-base font-bold text-swara-text tracking-tight font-display"
         >
           Explore Albums
         </h2>
@@ -138,8 +153,8 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
 
       {/* 2×2 Album Grid */}
       <div className="grid grid-cols-2 gap-4">
-        {visible.map((album) => (
-          <AlbumCard key={album.id} album={album} />
+        {visible.map((album, i) => (
+          <AlbumCard key={`${animKey}-${album.id}`} album={album} index={i} />
         ))}
       </div>
     </section>

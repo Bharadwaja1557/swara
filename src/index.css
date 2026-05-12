@@ -16,7 +16,7 @@
   }
 
   html {
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'DM Sans', system-ui, sans-serif;
     font-size: 16px;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -83,6 +83,32 @@
     transition-timing-function: cubic-bezier(0.25, 0.46, 0.45, 0.94);
     transition-duration: 200ms;
   }
+}
+
+/* ─── Animation keyframes ────────────────────────────────────────────────── */
+@keyframes eq {
+  0%, 100% { transform: scaleY(1);    }
+  50%      { transform: scaleY(0.22); }
+}
+
+/* ─── Animation utilities ────────────────────────────────────────────────── */
+@layer utilities {
+  /* Equalizer bar — transform-based, compositor-friendly */
+  .eq-bar {
+    transform-origin: bottom;
+  }
+
+  /* Stagger delays for card-in / track-in animations */
+  .stagger-1  { animation-delay: 0.04s; }
+  .stagger-2  { animation-delay: 0.08s; }
+  .stagger-3  { animation-delay: 0.13s; }
+  .stagger-4  { animation-delay: 0.18s; }
+  .stagger-5  { animation-delay: 0.23s; }
+  .stagger-6  { animation-delay: 0.28s; }
+  .stagger-7  { animation-delay: 0.33s; }
+  .stagger-8  { animation-delay: 0.38s; }
+  .stagger-9  { animation-delay: 0.43s; }
+  .stagger-10 { animation-delay: 0.48s; }
 }
 
 /* ─── Fullscreen player transition ──────────────────────────────────────── */

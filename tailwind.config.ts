@@ -22,9 +22,9 @@ const config: Config = {
         },
       },
       fontFamily: {
-        sans:    ['Inter', 'system-ui', 'sans-serif'],
-        display: ['Inter', 'system-ui', 'sans-serif'],
-        body:    ['Inter', 'system-ui', 'sans-serif'],
+        sans:    ['DM Sans', 'system-ui', 'sans-serif'],
+        display: ['Syne', 'system-ui', 'sans-serif'],
+        body:    ['DM Sans', 'system-ui', 'sans-serif'],
       },
       letterSpacing: {
         tighter: '-0.025em',
@@ -43,6 +43,25 @@ const config: Config = {
       },
       transitionTimingFunction: {
         'swara': 'cubic-bezier(0.25, 0.46, 0.45, 0.94)',
+      },
+      keyframes: {
+        'card-in': {
+          from: { opacity: '0', transform: 'translateY(14px)' },
+          to:   { opacity: '1', transform: 'translateY(0)' },
+        },
+        'track-in': {
+          from: { opacity: '0', transform: 'translateX(10px)' },
+          to:   { opacity: '1', transform: 'translateX(0)' },
+        },
+        'cover-breathe': {
+          '0%, 100%': { transform: 'scale(1)' },
+          '50%':      { transform: 'scale(1.018)' },
+        },
+      },
+      animation: {
+        'card-in':      'card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'track-in':     'track-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'cover-breathe': 'cover-breathe 4s ease-in-out infinite',
       },
     },
   },

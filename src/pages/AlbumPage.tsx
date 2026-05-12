@@ -12,6 +12,9 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
   const isPlaying = usePlayerStore((s) => s.isPlaying);
   const isActive = currentTrack?.id === track.id;
 
+  // Cap stagger at 10 to stay within defined utilities
+  const staggerIdx = Math.min(index + 1, 10);
+
   return (
     <button
       type="button"
@@ -19,6 +22,8 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
       className={[
         'flex items-center gap-4 w-full py-3 px-3 rounded-xl text-left',
         'hover:bg-swara-card active:scale-[0.98] transition-all duration-150',
+        'animate-track-in',
+        `stagger-${staggerIdx}`,
         isActive ? 'bg-swara-card' : '',
       ].join(' ')}
       aria-label={`Play ${track.title}`}
@@ -32,9 +37,9 @@ const TrackItem = ({ track, index, queue }: { track: Track; index: number; queue
       >
         {isActive && isPlaying ? (
           <span className="flex gap-[2px] items-end justify-center h-4">
-            <span className="w-[3px] bg-swara-accent rounded-full" style={{ height: '60%', animation: 'eq 0.8s ease-in-out infinite' }} />
-            <span className="w-[3px] bg-swara-accent rounded-full" style={{ height: '100%', animation: 'eq 0.8s ease-in-out 0.2s infinite' }} />
-            <span className="w-[3px] bg-swara-accent rounded-full" style={{ height: '40%', animation: 'eq 0.8s ease-in-out 0.4s infinite' }} />
+            <span className="eq-bar w-[3px] bg-swara-accent rounded-full" style={{ height: '60%', animation: 'eq 0.9s ease-in-out infinite' }} />
+            <span className="eq-bar w-[3px] bg-swara-accent rounded-full" style={{ height: '100%', animation: 'eq 0.7s ease-in-out 0.15s infinite' }} />
+            <span className="eq-bar w-[3px] bg-swara-accent rounded-full" style={{ height: '40%', animation: 'eq 1.1s ease-in-out 0.3s infinite' }} />
           </span>
         ) : (
           index + 1
@@ -134,7 +139,7 @@ const AlbumPage = () => {
 
         {/* Metadata */}
         <div className="text-center mb-5">
-          <h2 className="text-xl font-bold text-swara-text tracking-tight leading-tight mb-1">
+          <h2 className="text-xl font-bold text-swara-text tracking-tight leading-tight mb-1 font-display">
             {album.title}
           </h2>
           <button

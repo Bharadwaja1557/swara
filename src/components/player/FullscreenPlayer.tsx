@@ -160,11 +160,24 @@ const FullscreenPlayer = () => {
       <div className="flex-1 overflow-y-auto scrollbar-none px-6 pb-6">
         {/* Artwork */}
         <div className="mt-4 mb-6">
-          <div className="aspect-square w-full max-w-[320px] mx-auto rounded-2xl overflow-hidden shadow-[0_8px_40px_rgba(0,0,0,0.6)] bg-swara-card">
+          <div
+            className={[
+              'aspect-square w-full max-w-[320px] mx-auto rounded-2xl overflow-hidden bg-swara-card',
+              'transition-shadow duration-700',
+            ].join(' ')}
+            style={{
+              boxShadow: isPlaying
+                ? '0 8px 40px rgba(0,0,0,0.65), 0 0 72px rgba(200,169,106,0.09)'
+                : '0 8px 40px rgba(0,0,0,0.6)',
+            }}
+          >
             <img
               src={currentTrack.coverUrl}
               alt={currentTrack.album}
-              className="w-full h-full object-cover"
+              className={[
+                'w-full h-full object-cover',
+                isPlaying ? 'animate-cover-breathe' : '',
+              ].join(' ')}
               loading="eager"
             />
           </div>
@@ -173,7 +186,7 @@ const FullscreenPlayer = () => {
         {/* Track info + like */}
         <div className="flex items-start justify-between gap-3 mb-5">
           <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-semibold text-swara-text tracking-tight leading-snug truncate">
+            <h2 className="text-lg font-bold text-swara-text tracking-tight leading-snug truncate font-display">
               {currentTrack.title}
             </h2>
             <p className="text-sm text-swara-muted mt-0.5 truncate">
