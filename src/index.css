@@ -21,6 +21,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Prevent browser pull-to-refresh */
+    overscroll-behavior: none;
   }
 
   body {
@@ -30,6 +32,7 @@
     padding: 0;
     min-height: 100dvh;
     overflow-x: hidden;
+    overscroll-behavior: none;
   }
 
   #root {

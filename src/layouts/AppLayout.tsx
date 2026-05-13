@@ -7,47 +7,45 @@ import { useEffect } from 'react';
 import { useLibraryStore } from '@/store/libraryStore';
 
 /**
- * AppLayout
+ * AppLayout — persistent shell wrapping every page.
  *
- * Persistent shell that wraps every page.
- * Also owns MiniPlayer + FullscreenPlayer layer.
- * Kicks off library data fetch on mount.
+ * Fix 8: overscrollBehavior: 'none' on the main scroll area
+ * prevents Chrome/Safari pull-to-refresh from firing when the
+ * user swipes down on the now-playing screen.
  */
 const AppLayout = () => {
-  const { currentTrack, isExpanded } = usePlayerStore();
+  const { currentTrack } = usePlayerStore();
   const load = useLibraryStore((s) => s.load);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
 
-  const hasMiniPlayer = !!currentTrack;
-  const miniPlayerHeight = hasMiniPlayer ? 'calc(4rem + 64px + env(safe-area-inset-bottom, 0px))' : 'calc(4rem + env(safe-area-inset-bottom, 0px))';
+  // Bottom padding = nav (64px) + mini-player (72px) + safe area
+  const bottomPad = currentTrack
+    ? 'calc(64px + 72px + env(safe-area-inset-bottom, 0px))'
+    : 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   return (
     <div className="flex flex-col min-h-dvh bg-swara-bg">
-      {/* Scrollable page content */}
+      {/* Page content */}
       <main
         className="flex-1 overflow-y-auto overflow-x-hidden"
-        style={{ paddingBottom: miniPlayerHeight }}
+        style={{
+          paddingBottom:     bottomPad,
+          overscrollBehavior: 'none',   /* ← prevents pull-to-refresh */
+        }}
         id="main-content"
       >
         <Outlet />
       </main>
 
-      {/* Mini player (above bottom nav) */}
+      {/* Mini player strip (above bottom nav) */}
       <MiniPlayer />
 
-      {/* Persistent bottom navigation */}
+      {/* Bottom nav */}
       <BottomNav />
 
-      {/* Fullscreen player overlay */}
+      {/* Fullscreen now-playing overlay */}
       <FullscreenPlayer />
-
-      {/* Backdrop when expanded (prevents scroll) */}
-      {isExpanded && (
-        <div className="fixed inset-0 z-[55] bg-swara-bg pointer-events-none" aria-hidden="true" />
-      )}
     </div>
   );
 };

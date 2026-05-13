@@ -12,6 +12,58 @@ function getAudio(): HTMLAudioElement {
   return audio;
 }
 
+// ─── Recently played albums (localStorage) ───────────────────────────────────
+const RECENTS_KEY = 'swara_recent_albums';
+const MAX_RECENTS  = 12;
+
+function loadRecents(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
+  } catch {
+    return [];
+  }
+}
+
+function pushRecent(albumId: string) {
+  if (!albumId) return;
+  const list = loadRecents().filter((id) => id !== albumId);
+  list.unshift(albumId);
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, MAX_RECENTS)));
+}
+
+export function getRecentAlbumIds(): string[] {
+  return loadRecents();
+}
+
+// ─── Media Session helper ─────────────────────────────────────────────────────
+function updateMediaSession(track: Track, handlers: {
+  next: () => void;
+  prev: () => void;
+  togglePlay: () => void;
+}) {
+  if (!('mediaSession' in navigator)) return;
+
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title:  track.title,
+    artist: track.artist,
+    album:  track.album,
+    artwork: track.coverUrl
+      ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/webp' }]
+      : [],
+  });
+
+  navigator.mediaSession.setActionHandler('play',          () => handlers.togglePlay());
+  navigator.mediaSession.setActionHandler('pause',         () => handlers.togglePlay());
+  navigator.mediaSession.setActionHandler('nexttrack',     () => handlers.next());
+  navigator.mediaSession.setActionHandler('previoustrack', () => handlers.prev());
+  navigator.mediaSession.setActionHandler('seekto', (details) => {
+    const a = getAudio();
+    if (details.seekTime !== undefined && a.duration) {
+      a.currentTime = details.seekTime;
+    }
+  });
+}
+
 // ─── Player State ─────────────────────────────────────────────────────────────
 interface PlayerState {
   queue: Track[];
@@ -20,72 +72,124 @@ interface PlayerState {
   isPlaying: boolean;
   isShuffle: boolean;
   repeat: RepeatMode;
-  progress: number;   // 0–1
-  duration: number;   // seconds
-  volume: number;     // 0–1
+  progress: number;    // 0–1
+  duration: number;    // seconds
+  volume: number;      // 0–1
   isExpanded: boolean;
+  recentAlbumIds: string[];
 
   // actions
-  playTrack: (track: Track, queue?: Track[]) => void;
-  playAlbum: (tracks: Track[], startIndex?: number) => void;
-  togglePlay: () => void;
-  pause: () => void;
-  seekTo: (ratio: number) => void;
-  next: () => void;
-  prev: () => void;
+  playTrack:    (track: Track, queue?: Track[]) => void;
+  playAlbum:    (tracks: Track[], startIndex?: number) => void;
+  togglePlay:   () => void;
+  pause:        () => void;
+  seekTo:       (ratio: number) => void;
+  next:         () => void;
+  prev:         () => void;
   toggleShuffle: () => void;
-  toggleRepeat: () => void;
-  setExpanded: (val: boolean) => void;
-  setProgress: (progress: number) => void;
-  setDuration: (duration: number) => void;
+  toggleRepeat:  () => void;
+  setExpanded:  (val: boolean) => void;
+  setProgress:  (progress: number) => void;
+  setDuration:  (duration: number) => void;
   setIsPlaying: (val: boolean) => void;
+  refreshRecents: () => void;
 }
 
 export const usePlayerStore = create<PlayerState>((set, get) => {
-  // ── Internal: wire up the audio element events ──────────────────────────
+  // ── Wire up audio element events (called once) ──────────────────────────
   function setupAudioListeners(a: HTMLAudioElement) {
     a.ontimeupdate = () => {
-      const dur = a.duration || 0;
+      const dur  = a.duration || 0;
       const prog = dur > 0 ? a.currentTime / dur : 0;
       set({ progress: prog, duration: dur });
+
+      // Keep MediaSession position in sync (needed for lock-screen scrubber)
+      if ('mediaSession' in navigator && dur > 0) {
+        try {
+          navigator.mediaSession.setPositionState({
+            duration:     dur,
+            playbackRate: a.playbackRate,
+            position:     a.currentTime,
+          });
+        } catch { /* some browsers don't support this yet */ }
+      }
     };
-    a.onloadedmetadata = () => {
-      set({ duration: a.duration });
+
+    a.onloadedmetadata = () => set({ duration: a.duration });
+
+    a.onplay  = () => {
+      set({ isPlaying: true });
+      if ('mediaSession' in navigator)
+        navigator.mediaSession.playbackState = 'playing';
     };
+
+    a.onpause = () => {
+      set({ isPlaying: false });
+      if ('mediaSession' in navigator)
+        navigator.mediaSession.playbackState = 'paused';
+    };
+
     a.onended = () => {
-      // const { repeat, queue, currentIndex, isShuffle } = get();
       const { repeat, queue, currentIndex } = get();
       if (repeat === 'one') {
         a.currentTime = 0;
         a.play().catch(() => {});
-      } else if (repeat === 'all' || currentIndex < queue.length - 1) {
+        return;
+      }
+      if (currentIndex < queue.length - 1 || repeat === 'all') {
         get().next();
       } else {
         set({ isPlaying: false, progress: 0 });
       }
     };
-    a.onplay = () => set({ isPlaying: true });
-    a.onpause = () => set({ isPlaying: false });
+
+    a.onerror = () => {
+      console.error('[Swara] Audio error:', a.error?.message ?? 'unknown');
+    };
   }
 
+  // ── Load a track and start playing ─────────────────────────────────────
   function loadAndPlay(track: Track) {
     const a = getAudio();
     if (!a.ontimeupdate) setupAudioListeners(a);
-    a.src = track.streamUrl;
+
+    a.src  = track.streamUrl;
     a.load();
+
+    // play() must be called after load(); the promise rejection is handled
     const playPromise = a.play();
-    if (playPromise) playPromise.catch(() => {});
+    if (playPromise) {
+      playPromise.catch((err) => {
+        // NotAllowedError → autoplay blocked (first page load), ignore.
+        // Everything else is a real error.
+        if (err?.name !== 'NotAllowedError') {
+          console.warn('[Swara] play() failed:', err?.message ?? err);
+        }
+      });
+    }
+
     set({ currentTrack: track, isPlaying: true, progress: 0, duration: 0 });
+
+    // Update OS lock-screen / notification controls — FIX for item 1
+    updateMediaSession(track, {
+      next:       get().next,
+      prev:       get().prev,
+      togglePlay: get().togglePlay,
+    });
+
+    // Record recently played album
+    if (track.albumId) {
+      pushRecent(track.albumId);
+      set({ recentAlbumIds: loadRecents() });
+    }
   }
 
-  function getNextIndex(queue: Track[], currentIndex: number, isShuffle: boolean): number {
+  function getNextIndex(queue: Track[], idx: number, isShuffle: boolean): number {
     if (isShuffle) {
       const next = Math.floor(Math.random() * queue.length);
-      return next === currentIndex && queue.length > 1
-        ? (next + 1) % queue.length
-        : next;
+      return next === idx && queue.length > 1 ? (next + 1) % queue.length : next;
     }
-    return (currentIndex + 1) % queue.length;
+    return (idx + 1) % queue.length;
   }
 
   return {
@@ -99,6 +203,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     duration: 0,
     volume: 1,
     isExpanded: false,
+    recentAlbumIds: loadRecents(),
 
     playTrack: (track, queue) => {
       const newQueue = queue ?? [track];
@@ -108,9 +213,8 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     },
 
     playAlbum: (tracks, startIndex = 0) => {
-      const track = tracks[startIndex];
       set({ queue: tracks, currentIndex: startIndex });
-      loadAndPlay(track);
+      loadAndPlay(tracks[startIndex]);
     },
 
     togglePlay: () => {
@@ -124,9 +228,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       }
     },
 
-    pause: () => {
-      getAudio().pause();
-    },
+    pause: () => { getAudio().pause(); },
 
     seekTo: (ratio) => {
       const a = getAudio();
@@ -139,23 +241,16 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     next: () => {
       const { queue, currentIndex, isShuffle, repeat } = get();
       if (!queue.length) return;
-      let nextIdx: number;
-      if (repeat === 'one') {
-        nextIdx = currentIndex;
-      } else {
-        nextIdx = getNextIndex(queue, currentIndex, isShuffle);
-      }
+      const nextIdx = repeat === 'one'
+        ? currentIndex
+        : getNextIndex(queue, currentIndex, isShuffle);
       set({ currentIndex: nextIdx });
       loadAndPlay(queue[nextIdx]);
     },
 
     prev: () => {
       const a = getAudio();
-      // If more than 3 seconds in, restart current track
-      if (a.currentTime > 3) {
-        a.currentTime = 0;
-        return;
-      }
+      if (a.currentTime > 3) { a.currentTime = 0; return; }
       const { queue, currentIndex } = get();
       if (!queue.length) return;
       const prevIdx = currentIndex === 0 ? queue.length - 1 : currentIndex - 1;
@@ -167,13 +262,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
 
     toggleRepeat: () =>
       set((s) => ({
-        repeat:
-          s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
+        repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
       })),
 
-    setExpanded: (val) => set({ isExpanded: val }),
-    setProgress: (progress) => set({ progress }),
-    setDuration: (duration) => set({ duration }),
-    setIsPlaying: (val) => set({ isPlaying: val }),
+    setExpanded:  (val)  => set({ isExpanded: val }),
+    setProgress:  (prog) => set({ progress: prog }),
+    setDuration:  (dur)  => set({ duration: dur }),
+    setIsPlaying: (val)  => set({ isPlaying: val }),
+    refreshRecents: ()   => set({ recentAlbumIds: loadRecents() }),
   };
 });
