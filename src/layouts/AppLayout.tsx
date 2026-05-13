@@ -25,7 +25,7 @@ const AppLayout = () => {
     : 'calc(64px + env(safe-area-inset-bottom, 0px))';
 
   return (
-    <div className="flex flex-col min-h-dvh bg-swara-bg">
+    <div className="flex flex-col h-dvh bg-swara-bg overflow-hidden">
       {/* Page content */}
       <main
         className="flex-1 overflow-y-auto overflow-x-hidden"
