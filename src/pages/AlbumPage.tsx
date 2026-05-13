@@ -20,11 +20,9 @@ const PlayingBars = () => (
 // ─── Track row (git-play style) ───────────────────────────────────────────────
 const TrackItem = ({
   track,
-  queueIndex,
   queue,
 }: {
   track: Track;
-  queueIndex: number;
   queue: Track[];
 }) => {
   const playTrack    = usePlayerStore((s) => s.playTrack);
@@ -257,8 +255,8 @@ const AlbumPage = () => {
 
         {!tracksLoading && !tracksError && (
           <ul className="space-y-0">
-            {tracks.map((track, i) => (
-              <TrackItem key={track.id} track={track} queueIndex={i} queue={tracks} />
+            {tracks.map((track) => (
+              <TrackItem key={track.id} track={track} queue={tracks} />
             ))}
           </ul>
         )}
