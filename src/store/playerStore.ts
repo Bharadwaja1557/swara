@@ -1,274 +1,274 @@
+/**
+ * playerStore — Background-safe audio playback engine
+ *
+ * CRITICAL FIX: The audio engine lives in module-level variables (_eng).
+ * The `onended` handler reads directly from _eng — never from Zustand get().
+ * This guarantees queue progression even when the tab is backgrounded and
+ * browsers throttle JS execution / React state updates.
+ */
 import { create } from 'zustand';
 import type { Track, RepeatMode } from '@/types/music';
 
-// ─── Singleton audio element ──────────────────────────────────────────────────
-let audio: HTMLAudioElement | null = null;
+// ─── Module-level audio engine (background-safe) ─────────────────────────────
+
+let _audio: HTMLAudioElement | null = null;
 
 function getAudio(): HTMLAudioElement {
-  if (!audio) {
-    audio = new Audio();
-    audio.preload = 'metadata';
+  if (!_audio) {
+    _audio = new Audio();
+    _audio.preload = 'metadata';
+    _setupListeners(_audio);
   }
-  return audio;
+  return _audio;
 }
 
-// ─── Recently played albums (localStorage) ───────────────────────────────────
-const RECENTS_KEY = 'swara_recent_albums';
-const MAX_RECENTS  = 12;
+// Engine: always current, no React dependency
+const _eng = {
+  originalQueue: [] as Track[],
+  activeQueue:   [] as Track[],   // shuffled when shuffle on
+  idx:           0,
+  shuffle:       false,
+  repeat:        'off' as RepeatMode,
+};
 
-function loadRecents(): string[] {
-  try {
-    return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]');
-  } catch {
-    return [];
+// Stable ref to zustand set (never stale)
+let _sync: ((partial: Partial<PlayerReactState>) => void) | null = null;
+
+function _fisher<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
   }
+  return a;
 }
 
-function pushRecent(albumId: string) {
-  if (!albumId) return;
-  const list = loadRecents().filter((id) => id !== albumId);
-  list.unshift(albumId);
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, MAX_RECENTS)));
-}
-
-export function getRecentAlbumIds(): string[] {
-  return loadRecents();
-}
-
-// ─── Media Session helper ─────────────────────────────────────────────────────
-function updateMediaSession(track: Track, handlers: {
-  next: () => void;
-  prev: () => void;
-  togglePlay: () => void;
-}) {
-  if (!('mediaSession' in navigator)) return;
-
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title:  track.title,
-    artist: track.artist,
-    album:  track.album,
-    artwork: track.coverUrl
-      ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/webp' }]
-      : [],
-  });
-
-  navigator.mediaSession.setActionHandler('play',          () => handlers.togglePlay());
-  navigator.mediaSession.setActionHandler('pause',         () => handlers.togglePlay());
-  navigator.mediaSession.setActionHandler('nexttrack',     () => handlers.next());
-  navigator.mediaSession.setActionHandler('previoustrack', () => handlers.prev());
-  navigator.mediaSession.setActionHandler('seekto', (details) => {
-    const a = getAudio();
-    if (details.seekTime !== undefined && a.duration) {
-      a.currentTime = details.seekTime;
+function _setupListeners(a: HTMLAudioElement) {
+  a.ontimeupdate = () => {
+    const dur = a.duration || 0;
+    const prog = dur > 0 ? a.currentTime / dur : 0;
+    _sync?.({ progress: prog, duration: dur });
+    if ('mediaSession' in navigator && dur > 0) {
+      try {
+        navigator.mediaSession.setPositionState({ duration: dur, playbackRate: a.playbackRate, position: a.currentTime });
+      } catch { /* not all browsers support this */ }
     }
+  };
+  a.onloadedmetadata = () => _sync?.({ duration: a.duration });
+  a.onplay  = () => {
+    _sync?.({ isPlaying: true });
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+  };
+  a.onpause = () => {
+    _sync?.({ isPlaying: false });
+    if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+  };
+
+  // ── onended: reads from _eng only — background-safe ──────────────────────
+  a.onended = () => {
+    const { activeQueue, idx, repeat } = _eng;
+    if (repeat === 'one') {
+      a.currentTime = 0;
+      a.play().catch(() => {});
+      return;
+    }
+    let nextIdx: number | null = null;
+    if (idx < activeQueue.length - 1) nextIdx = idx + 1;
+    else if (repeat === 'all' && activeQueue.length > 0) nextIdx = 0;
+
+    if (nextIdx !== null) {
+      _eng.idx = nextIdx;
+      _loadAndPlay(activeQueue[nextIdx]);
+    } else {
+      _sync?.({ isPlaying: false, progress: 0 });
+    }
+  };
+
+  a.onerror = () => console.error('[Swara] Audio error:', a.error?.message ?? 'unknown');
+}
+
+function _loadAndPlay(track: Track) {
+  const a = getAudio();
+  a.src = track.streamUrl;
+  a.load();
+  a.play().catch((e) => {
+    if (e?.name !== 'NotAllowedError') console.warn('[Swara] play() failed:', e?.message);
+  });
+  _sync?.({ currentTrack: track, currentIndex: _eng.idx, isPlaying: true, progress: 0, duration: 0 });
+  _updateMediaSession(track);
+  _pushRecent(track.albumId, track.id);
+  _sync?.({ recentSongs: _loadRecents() });
+}
+
+function _updateMediaSession(track: Track) {
+  if (!('mediaSession' in navigator)) return;
+  navigator.mediaSession.metadata = new MediaMetadata({
+    title: track.title, artist: track.artist, album: track.album,
+    artwork: track.coverUrl ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/webp' }] : [],
+  });
+  // Handlers reference _eng directly — always current
+  navigator.mediaSession.setActionHandler('play',          () => { getAudio().play().catch(() => {}); });
+  navigator.mediaSession.setActionHandler('pause',         () => { getAudio().pause(); });
+  navigator.mediaSession.setActionHandler('nexttrack',     () => _advanceNext());
+  navigator.mediaSession.setActionHandler('previoustrack', () => _advancePrev());
+  navigator.mediaSession.setActionHandler('seekto', (d) => {
+    const a = getAudio();
+    if (d.seekTime !== undefined && a.duration) a.currentTime = d.seekTime;
   });
 }
 
-// ─── Player State ─────────────────────────────────────────────────────────────
-interface PlayerState {
-  queue: Track[];
-  currentIndex: number;
-  currentTrack: Track | null;
-  isPlaying: boolean;
-  isShuffle: boolean;
-  repeat: RepeatMode;
-  progress: number;    // 0–1
-  duration: number;    // seconds
-  volume: number;      // 0–1
-  isExpanded: boolean;
-  recentAlbumIds: string[];
+function _advanceNext() {
+  const { activeQueue, idx, repeat } = _eng;
+  if (!activeQueue.length) return;
+  let nextIdx = idx < activeQueue.length - 1 ? idx + 1 : repeat === 'all' ? 0 : null;
+  if (nextIdx === null) return;
+  _eng.idx = nextIdx;
+  _loadAndPlay(activeQueue[nextIdx]);
+}
 
-  // actions
-  playTrack:    (track: Track, queue?: Track[]) => void;
-  playAlbum:    (tracks: Track[], startIndex?: number) => void;
-  togglePlay:   () => void;
-  pause:        () => void;
-  seekTo:       (ratio: number) => void;
-  next:         () => void;
-  prev:         () => void;
-  toggleShuffle: () => void;
-  toggleRepeat:  () => void;
-  setExpanded:  (val: boolean) => void;
-  setProgress:  (progress: number) => void;
-  setDuration:  (duration: number) => void;
-  setIsPlaying: (val: boolean) => void;
+function _advancePrev() {
+  const a = getAudio();
+  if (a.currentTime > 3) { a.currentTime = 0; return; }
+  const { activeQueue, idx } = _eng;
+  if (!activeQueue.length) return;
+  const prevIdx = idx > 0 ? idx - 1 : activeQueue.length - 1;
+  _eng.idx = prevIdx;
+  _loadAndPlay(activeQueue[prevIdx]);
+}
+
+// ─── Recents: track-level (deduped by album) ─────────────────────────────────
+const RECENTS_KEY = 'swara_recents';
+
+interface RecentEntry { trackId: string; albumId: string; }
+
+function _loadRecents(): RecentEntry[] {
+  try { return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]'); } catch { return []; }
+}
+
+function _pushRecent(albumId: string, trackId: string) {
+  if (!albumId || !trackId) return;
+  // Dedup by albumId (keep most recent per album)
+  const list = _loadRecents().filter((r) => r.albumId !== albumId);
+  list.unshift({ trackId, albumId });
+  localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 30)));
+}
+
+export function getRecentEntries(): RecentEntry[] { return _loadRecents(); }
+
+// ─── Expose next N tracks (for Now Playing queue display) ─────────────────────
+export function getNextTracks(n = 5): Track[] {
+  return _eng.activeQueue.slice(_eng.idx + 1, _eng.idx + 1 + n);
+}
+export function getActiveQueue(): Track[] { return _eng.activeQueue; }
+export function getEngineIdx(): number { return _eng.idx; }
+
+// ─── Zustand React State ──────────────────────────────────────────────────────
+
+interface PlayerReactState {
+  currentTrack:  Track | null;
+  currentIndex:  number;
+  isPlaying:     boolean;
+  isShuffle:     boolean;
+  repeat:        RepeatMode;
+  progress:      number;
+  duration:      number;
+  isExpanded:    boolean;
+  recentSongs:   RecentEntry[];
+}
+
+interface PlayerState extends PlayerReactState {
+  playTrack:      (track: Track, queue?: Track[]) => void;
+  playAlbum:      (tracks: Track[], startIndex?: number) => void;
+  togglePlay:     () => void;
+  next:           () => void;
+  prev:           () => void;
+  seekTo:         (ratio: number) => void;
+  toggleShuffle:  () => void;
+  toggleRepeat:   () => void;
+  setExpanded:    (v: boolean) => void;
   refreshRecents: () => void;
 }
 
-export const usePlayerStore = create<PlayerState>((set, get) => {
-  // ── Wire up audio element events (called once) ──────────────────────────
-  function setupAudioListeners(a: HTMLAudioElement) {
-    a.ontimeupdate = () => {
-      const dur  = a.duration || 0;
-      const prog = dur > 0 ? a.currentTime / dur : 0;
-      set({ progress: prog, duration: dur });
+export const usePlayerStore = create<PlayerState>((set) => {
+  // Wire up the sync function
+  _sync = (partial) => set(partial as Partial<PlayerState>);
 
-      // Keep MediaSession position in sync (needed for lock-screen scrubber)
-      if ('mediaSession' in navigator && dur > 0) {
-        try {
-          navigator.mediaSession.setPositionState({
-            duration:     dur,
-            playbackRate: a.playbackRate,
-            position:     a.currentTime,
-          });
-        } catch { /* some browsers don't support this yet */ }
-      }
-    };
-
-    a.onloadedmetadata = () => set({ duration: a.duration });
-
-    a.onplay  = () => {
-      set({ isPlaying: true });
-      if ('mediaSession' in navigator)
-        navigator.mediaSession.playbackState = 'playing';
-    };
-
-    a.onpause = () => {
-      set({ isPlaying: false });
-      if ('mediaSession' in navigator)
-        navigator.mediaSession.playbackState = 'paused';
-    };
-
-    a.onended = () => {
-      const { repeat, queue, currentIndex } = get();
-      if (repeat === 'one') {
-        a.currentTime = 0;
-        a.play().catch(() => {});
-        return;
-      }
-      if (currentIndex < queue.length - 1 || repeat === 'all') {
-        get().next();
-      } else {
-        set({ isPlaying: false, progress: 0 });
-      }
-    };
-
-    a.onerror = () => {
-      console.error('[Swara] Audio error:', a.error?.message ?? 'unknown');
-    };
-  }
-
-  // ── Load a track and start playing ─────────────────────────────────────
-  function loadAndPlay(track: Track) {
-    const a = getAudio();
-    if (!a.ontimeupdate) setupAudioListeners(a);
-
-    a.src  = track.streamUrl;
-    a.load();
-
-    // play() must be called after load(); the promise rejection is handled
-    const playPromise = a.play();
-    if (playPromise) {
-      playPromise.catch((err) => {
-        // NotAllowedError → autoplay blocked (first page load), ignore.
-        // Everything else is a real error.
-        if (err?.name !== 'NotAllowedError') {
-          console.warn('[Swara] play() failed:', err?.message ?? err);
-        }
-      });
+  function _setQueue(tracks: Track[], startIdx: number) {
+    _eng.originalQueue = tracks;
+    _eng.idx = startIdx;
+    if (_eng.shuffle) {
+      // Shuffle but keep current track first
+      const rest = tracks.filter((_, i) => i !== startIdx);
+      const shuffledRest = _fisher(rest);
+      _eng.activeQueue = [tracks[startIdx], ...shuffledRest];
+      _eng.idx = 0;
+    } else {
+      _eng.activeQueue = [...tracks];
+      _eng.idx = startIdx;
     }
-
-    set({ currentTrack: track, isPlaying: true, progress: 0, duration: 0 });
-
-    // Update OS lock-screen / notification controls — FIX for item 1
-    updateMediaSession(track, {
-      next:       get().next,
-      prev:       get().prev,
-      togglePlay: get().togglePlay,
-    });
-
-    // Record recently played album
-    if (track.albumId) {
-      pushRecent(track.albumId);
-      set({ recentAlbumIds: loadRecents() });
-    }
-  }
-
-  function getNextIndex(queue: Track[], idx: number, isShuffle: boolean): number {
-    if (isShuffle) {
-      const next = Math.floor(Math.random() * queue.length);
-      return next === idx && queue.length > 1 ? (next + 1) % queue.length : next;
-    }
-    return (idx + 1) % queue.length;
   }
 
   return {
-    queue: [],
-    currentIndex: 0,
-    currentTrack: null,
-    isPlaying: false,
-    isShuffle: false,
-    repeat: 'off',
-    progress: 0,
-    duration: 0,
-    volume: 1,
-    isExpanded: false,
-    recentAlbumIds: loadRecents(),
+    currentTrack:  null,
+    currentIndex:  0,
+    isPlaying:     false,
+    isShuffle:     false,
+    repeat:        'off',
+    progress:      0,
+    duration:      0,
+    isExpanded:    false,
+    recentSongs:   _loadRecents(),
 
     playTrack: (track, queue) => {
-      const newQueue = queue ?? [track];
-      const idx = newQueue.findIndex((t) => t.id === track.id);
-      set({ queue: newQueue, currentIndex: idx < 0 ? 0 : idx });
-      loadAndPlay(track);
+      const q = queue ?? [track];
+      const startIdx = q.findIndex((t) => t.id === track.id);
+      _setQueue(q, Math.max(0, startIdx));
+      _loadAndPlay(track);
+      set({ isShuffle: _eng.shuffle });
     },
 
     playAlbum: (tracks, startIndex = 0) => {
-      set({ queue: tracks, currentIndex: startIndex });
-      loadAndPlay(tracks[startIndex]);
+      _setQueue(tracks, startIndex);
+      _loadAndPlay(_eng.activeQueue[_eng.idx]);
     },
 
     togglePlay: () => {
       const a = getAudio();
-      const { isPlaying, currentTrack } = get();
-      if (!currentTrack) return;
-      if (isPlaying) {
-        a.pause();
-      } else {
-        a.play().catch(() => {});
-      }
+      if (a.paused) a.play().catch(() => {});
+      else a.pause();
     },
 
-    pause: () => { getAudio().pause(); },
+    next: () => _advanceNext(),
+    prev: () => _advancePrev(),
 
     seekTo: (ratio) => {
       const a = getAudio();
-      if (a.duration) {
-        a.currentTime = ratio * a.duration;
-        set({ progress: ratio });
+      if (a.duration) { a.currentTime = ratio * a.duration; set({ progress: ratio }); }
+    },
+
+    toggleShuffle: () => {
+      const newShuffle = !_eng.shuffle;
+      _eng.shuffle = newShuffle;
+      const currentTrack = _eng.activeQueue[_eng.idx];
+      if (newShuffle) {
+        const rest = _eng.originalQueue.filter((t) => t.id !== currentTrack?.id);
+        _eng.activeQueue = currentTrack ? [currentTrack, ..._fisher(rest)] : _fisher(_eng.originalQueue);
+        _eng.idx = 0;
+      } else {
+        _eng.activeQueue = [..._eng.originalQueue];
+        _eng.idx = currentTrack ? _eng.originalQueue.findIndex((t) => t.id === currentTrack.id) : 0;
+        if (_eng.idx < 0) _eng.idx = 0;
       }
+      set({ isShuffle: newShuffle, currentIndex: _eng.idx });
     },
 
-    next: () => {
-      const { queue, currentIndex, isShuffle, repeat } = get();
-      if (!queue.length) return;
-      const nextIdx = repeat === 'one'
-        ? currentIndex
-        : getNextIndex(queue, currentIndex, isShuffle);
-      set({ currentIndex: nextIdx });
-      loadAndPlay(queue[nextIdx]);
+    toggleRepeat: () => {
+      const next: RepeatMode = _eng.repeat === 'off' ? 'all' : _eng.repeat === 'all' ? 'one' : 'off';
+      _eng.repeat = next;
+      set({ repeat: next });
     },
 
-    prev: () => {
-      const a = getAudio();
-      if (a.currentTime > 3) { a.currentTime = 0; return; }
-      const { queue, currentIndex } = get();
-      if (!queue.length) return;
-      const prevIdx = currentIndex === 0 ? queue.length - 1 : currentIndex - 1;
-      set({ currentIndex: prevIdx });
-      loadAndPlay(queue[prevIdx]);
-    },
-
-    toggleShuffle: () => set((s) => ({ isShuffle: !s.isShuffle })),
-
-    toggleRepeat: () =>
-      set((s) => ({
-        repeat: s.repeat === 'off' ? 'all' : s.repeat === 'all' ? 'one' : 'off',
-      })),
-
-    setExpanded:  (val)  => set({ isExpanded: val }),
-    setProgress:  (prog) => set({ progress: prog }),
-    setDuration:  (dur)  => set({ duration: dur }),
-    setIsPlaying: (val)  => set({ isPlaying: val }),
-    refreshRecents: ()   => set({ recentAlbumIds: loadRecents() }),
+    setExpanded:    (v) => set({ isExpanded: v }),
+    refreshRecents: ()  => set({ recentSongs: _loadRecents() }),
   };
 });
