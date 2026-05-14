@@ -272,3 +272,15 @@ export const usePlayerStore = create<PlayerState>((set) => {
     refreshRecents: ()  => set({ recentSongs: _loadRecents() }),
   };
 });
+
+// ─── Volume control (desktop player) ─────────────────────────────────────────
+export function setAudioVolume(vol: number) {
+  const clamped = Math.max(0, Math.min(1, vol));
+  const a = getAudio();
+  a.volume = clamped;
+  _sync?.({ volume: clamped } as any);
+}
+
+export function getAudioVolume(): number {
+  return _audio?.volume ?? 1;
+}

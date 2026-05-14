@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 const TopBar = () => {
   const navigate = useNavigate();
   return (
-    <header className="flex items-center justify-between px-5 pt-6 pb-2">
+    <header className="flex items-center justify-between px-5 pt-6 pb-2 lg:hidden">
       <div className="flex flex-col leading-none">
         <span className="text-[1.85rem] font-bold text-swara-accent tracking-[-0.04em] leading-none font-display">
           swara
