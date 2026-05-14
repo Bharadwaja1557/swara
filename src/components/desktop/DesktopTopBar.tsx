@@ -2,7 +2,7 @@
  * DesktopTopBar — desktop-only top navigation bar.
  * Left: swara logo  |  Center: home icon + search  |  Right: user icon
  */
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
@@ -37,9 +37,10 @@ const SearchDropdown = ({
   const playTrack = usePlayerStore((s) => s.playTrack);
   const q = query.trim().toLowerCase();
 
-  const mTracks  = q ? tracks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, MAX_PER) : [];
-  const mAlbums  = q ? albums.filter((a) => a.title.toLowerCase().includes(q) || a.composer.toLowerCase().includes(q)).slice(0, MAX_PER) : [];
-  const mArtists = q ? artists.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MAX_PER) : [];
+  // Memoize raw matches (independent of filter) so filter-chip clicks are instant
+  const mTracks  = useMemo(() => q ? tracks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, MAX_PER)  : [], [q, tracks]);
+  const mAlbums  = useMemo(() => q ? albums.filter((a) => a.title.toLowerCase().includes(q) || a.composer.toLowerCase().includes(q)).slice(0, MAX_PER) : [], [q, albums]);
+  const mArtists = useMemo(() => q ? artists.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MAX_PER) : [], [q, artists]);
   const hasResults = mTracks.length > 0 || mAlbums.length > 0 || mArtists.length > 0;
 
   const showTracks  = filter === 'All' || filter === 'Tracks';
@@ -153,26 +154,35 @@ const SearchDropdown = ({
 // ─── DesktopTopBar ────────────────────────────────────────────────────────────
 const DesktopTopBar = () => {
   const navigate = useNavigate();
-  const { tracks, albums, artists, loadAlbumTracks, loaded } = useLibraryStore();
+  // Subscribe only to what we need for rendering; actions (loadAlbumTracks) are stable Zustand refs
+  const { tracks, albums, artists, loaded } = useLibraryStore();
 
   const [query,      setQuery]      = useState('');
   const [focused,    setFocused]    = useState(false);
   const [filter,     setFilter]     = useState<Filter>('All');
   const [recents,    setRecents]    = useState(loadRecents);
   const [indexing,   setIndexing]   = useState(false);
-  const inputRef  = useRef<HTMLInputElement>(null);
+  const inputRef   = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  // Guard: only index once per session — prevents the albums→loadAll→effect→albums loop
+  const hasIndexed = useRef(false);
 
   const showDropdown = focused;
 
-  // Load all tracks when search is active
+  // ── FIX: loadAll reads albums from getState() at call time, NOT from reactive
+  // closure. This breaks the infinite loop:
+  //   albums changes → loadAll recreated → effect fires → loadAlbumTracks →
+  //   albums changes → ... (was crashing on filter-chip click mid-loop)
   const loadAll = useCallback(async () => {
-    const unloaded = albums.filter((a) => a.tracks.length === 0);
-    if (!unloaded.length) return;
+    if (hasIndexed.current) return;
+    const { albums: snap, loadAlbumTracks } = useLibraryStore.getState();
+    const unloaded = snap.filter((a) => a.tracks.length === 0);
+    if (!unloaded.length) { hasIndexed.current = true; return; }
+    hasIndexed.current = true;          // set before awaiting to prevent double-call
     setIndexing(true);
     await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
     setIndexing(false);
-  }, [albums, loadAlbumTracks]);
+  }, []); // ← no deps: stable forever, reads live state via getState()
 
   useEffect(() => {
     if (!query.trim() || !loaded) return;

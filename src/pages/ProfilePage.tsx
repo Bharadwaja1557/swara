@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 const ProfilePage = () => {
   const navigate = useNavigate();
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
+    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 pt-5 pb-3">
         <button type="button" onClick={() => navigate(-1)}
           className="w-9 h-9 flex items-center justify-center rounded-full text-swara-muted hover:text-swara-text active:scale-90 transition-all"

@@ -53,9 +53,9 @@ const LibraryPage = () => {
   }, [artists, sort]);
 
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
+    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       {/* Header */}
-      <div className="px-5 pt-6 pb-2">
+      <div className="px-5 lg:px-8 pt-6 pb-2">
         <h1 className="text-[1.5rem] font-bold text-swara-text tracking-tight font-display mb-4">
           My Library
         </h1>
@@ -76,10 +76,10 @@ const LibraryPage = () => {
         </div>
       </div>
 
-      <div className="mx-5 h-px bg-swara-border opacity-50 mb-3" />
+      <div className="mx-5 lg:mx-8 h-px bg-swara-border opacity-50 mb-3" />
 
       {/* Sort + View controls */}
-      <div className="flex items-center justify-between px-5 mb-3 relative">
+      <div className="flex items-center justify-between px-5 lg:px-8 mb-3 relative">
         {/* Sort dropdown */}
         <div className="relative">
           <button type="button" onClick={() => setSortOpen((o) => !o)}
@@ -132,7 +132,7 @@ const LibraryPage = () => {
       </div>
 
       {/* Content */}
-      <div className="px-5 pb-6">
+      <div className="px-5 lg:px-8 pb-6">
         {/* Playlists tab */}
         {tab === 'Playlists' && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
@@ -149,27 +149,29 @@ const LibraryPage = () => {
         {/* Albums tab */}
         {tab === 'Albums' && (
           view === 'grid' ? (
-            <div className="grid grid-cols-3 gap-3">
+            // Mobile: 3 cols — Desktop: 2 cols (larger, better density)
+            <div className="grid grid-cols-3 lg:grid-cols-2 gap-3 lg:gap-4">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
                   className="flex flex-col gap-1.5 text-left active:scale-95 transition-transform">
                   <div className="w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated">
                     <img src={album.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
-                  <p className="text-[0.75rem] font-medium text-swara-text truncate">{album.title}</p>
-                  <p className="text-[0.65rem] text-swara-muted truncate">{album.composer}</p>
+                  <p className="text-[0.75rem] lg:text-[0.85rem] font-medium text-swara-text truncate">{album.title}</p>
+                  <p className="text-[0.65rem] lg:text-[0.72rem] text-swara-muted truncate">{album.composer}</p>
                 </button>
               ))}
             </div>
           ) : (
+            // List view — desktop cover ~150% bigger (48px → 72px)
             <div className="flex flex-col gap-0">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <img src={album.coverUrl} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+                  className="flex items-center gap-3 lg:gap-4 py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <img src={album.coverUrl} alt="" className="w-12 h-12 lg:w-[72px] lg:h-[72px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.88rem] font-medium text-swara-text truncate">{album.title}</p>
-                    <p className="text-[0.72rem] text-swara-muted truncate">{album.composer} · {album.year}</p>
+                    <p className="text-[0.88rem] lg:text-[0.95rem] font-medium text-swara-text truncate">{album.title}</p>
+                    <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-muted truncate">{album.composer} · {album.year}</p>
                   </div>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
                     <path d="m9 18 6-6-6-6"/>

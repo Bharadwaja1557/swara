@@ -57,21 +57,22 @@ interface ExploreAlbumsProps {
 }
 
 const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
-  const [visible,  setVisible]  = useState<Album[]>(() => pickRandom(albumPool, 4));
+  // Show 8 albums: mobile displays first 4 (2x2), desktop shows all 8 (4x2)
+  const [visible,  setVisible]  = useState<Album[]>(() => pickRandom(albumPool, 8));
   const [spinning, setSpinning] = useState(false);
   const [animKey,  setAnimKey]  = useState(0);
 
   const handleShuffle = useCallback(() => {
     setSpinning(true);
     setTimeout(() => {
-      setVisible(pickRandom(albumPool, 4));
+      setVisible(pickRandom(albumPool, 8));
       setAnimKey((k) => k + 1);
       setSpinning(false);
     }, 320);
   }, [albumPool]);
 
   return (
-    <section className="px-5 pt-6 pb-8" aria-labelledby="explore-albums-heading">
+    <section className="px-5 lg:px-8 pt-6 pb-8" aria-labelledby="explore-albums-heading">
       <div className="flex items-center justify-between mb-4">
         <h2
           id="explore-albums-heading"
@@ -107,9 +108,13 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      {/* Mobile: 2 cols (first 4 visible), Desktop: 4 cols (all 8 visible) */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {visible.map((album, i) => (
-          <AlbumCard key={`${animKey}-${album.id}`} album={album} index={i} />
+          // Items 4-7 hidden on mobile, shown on desktop
+          <div key={`${animKey}-${album.id}`} className={i >= 4 ? 'hidden lg:contents' : ''}>
+            <AlbumCard album={album} index={i} />
+          </div>
         ))}
       </div>
     </section>

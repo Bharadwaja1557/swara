@@ -80,9 +80,10 @@ const DesktopNowPlaying = () => {
           aria-label="Exit fullscreen (Esc)"
           title="Exit fullscreen (Esc)"
         >
+          {/* Compress / minimize icon — arrows pointing inward */}
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
             strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M8 3H5a2 2 0 00-2 2v3M21 8V5a2 2 0 00-2-2h-3M3 16v3a2 2 0 002 2h3M16 21h3a2 2 0 002-2v-3"/>
+            <path d="M8 3v5H3M21 8h-5V3M3 16h5v5M16 21v-5h5"/>
           </svg>
         </button>
 
@@ -167,8 +168,8 @@ const DesktopNowPlaying = () => {
             </div>
           </div>
 
-          {/* Playback controls */}
-          <div className="flex items-center justify-start gap-4 mb-7">
+          {/* Playback controls — centered */}
+          <div className="flex items-center justify-center gap-4 mb-7">
             {/* Shuffle */}
             <button type="button" onClick={toggleShuffle}
               className="w-10 h-10 flex items-center justify-center rounded-full transition-colors"

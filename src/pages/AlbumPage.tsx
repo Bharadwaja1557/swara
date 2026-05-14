@@ -168,7 +168,7 @@ const AlbumPage = () => {
   };
 
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
+    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       {/* Back bar */}
       <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 pt-5 pb-3">
         <button type="button" onClick={() => navigate(-1)}

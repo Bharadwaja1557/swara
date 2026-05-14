@@ -83,23 +83,37 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
 // ─── SearchPage ───────────────────────────────────────────────────────────────
 const SearchPage = () => {
   const [query,        setQuery]        = useState('');
+  const [debouncedQ,   setDebouncedQ]   = useState('');       // debounced for filtering
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [indexing,     setIndexing]     = useState(false);
   const [recents,      setRecents]      = useState(loadSearchRecents);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
+  // Guard: index once per session — prevents albums→loadAll→effect→albums infinite loop
+  const hasIndexed = useRef(false);
 
-  const { tracks, albums, artists, loaded, loadAlbumTracks } = useLibraryStore();
-  const q = query.trim().toLowerCase();
+  const { tracks, albums, artists, loaded } = useLibraryStore();
 
-  // Eagerly load all tracks when query is active (for track-search)
+  // Debounce query → debouncedQ (200 ms keeps typing fast, filtering responsive)
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(query), 200);
+    return () => clearTimeout(t);
+  }, [query]);
+
+  const q = debouncedQ.trim().toLowerCase();
+
+  // ── FIX: same pattern as DesktopTopBar — read store state at call time
+  // so loadAll is stable and never re-triggers from album updates
   const loadAll = useCallback(async () => {
-    const unloaded = albums.filter((a) => a.tracks.length === 0);
-    if (!unloaded.length) return;
+    if (hasIndexed.current) return;
+    const { albums: snap, loadAlbumTracks } = useLibraryStore.getState();
+    const unloaded = snap.filter((a) => a.tracks.length === 0);
+    if (!unloaded.length) { hasIndexed.current = true; return; }
+    hasIndexed.current = true;
     setIndexing(true);
     await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
     setIndexing(false);
-  }, [albums, loadAlbumTracks]);
+  }, []); // stable — no deps
 
   useEffect(() => {
     if (!q || !loaded || activeFilter === 'Albums' || activeFilter === 'Artists') return;
@@ -139,7 +153,7 @@ const SearchPage = () => {
   const hasResults = matchedTracks.length > 0 || matchedAlbums.length > 0 || matchedArtists.length > 0;
 
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
+    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       {/* Search bar — git-play style, sticky */}
       <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm pt-5 pb-3 px-4">
         <div className="relative">

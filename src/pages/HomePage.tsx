@@ -8,7 +8,7 @@ import { useLibraryStore } from '@/store/libraryStore';
 const HomePage = () => {
   const { albums, loading, error } = useLibraryStore();
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto">
+    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       <TopBar />
       <GreetingSection username="Neo" />
       <div className="mx-5 mt-3 h-px bg-swara-border opacity-60" aria-hidden="true" />
