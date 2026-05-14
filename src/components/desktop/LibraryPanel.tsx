@@ -47,12 +47,12 @@ const LibraryPanel = () => {
   return (
     <aside
       className="flex flex-col flex-shrink-0 border-r overflow-hidden"
-      style={{ width: '20%', minWidth: '200px', maxWidth: '280px', borderColor: 'rgba(255,255,255,0.06)' }}
+      style={{ width: '25%', minWidth: '220px', maxWidth: '320px', borderColor: 'rgba(255,255,255,0.06)' }}
     >
       {/* Header */}
       <div className="flex-shrink-0 px-4 pt-5 pb-3">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase">Library</h2>
+          <h2 className="text-[0.78rem] font-semibold text-swara-muted tracking-widest uppercase">Library</h2>
           {/* Sort button */}
           <div className="relative">
             <button type="button" onClick={() => setSortOpen((o) => !o)}
@@ -97,8 +97,8 @@ const LibraryPanel = () => {
               className={['flex items-center gap-2.5 w-full px-2 py-2 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
               <img src={album.coverUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
               <div className="flex-1 min-w-0">
-                <p className={['text-[0.78rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
-                <p className="text-[0.66rem] text-swara-muted truncate">{album.composer}</p>
+                <p className={['text-[0.82rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
+                <p className="text-[0.7rem] text-swara-muted truncate">{album.composer}</p>
               </div>
             </button>
           );
@@ -113,8 +113,8 @@ const LibraryPanel = () => {
                 <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className={['text-[0.78rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
-                <p className="text-[0.66rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
+                <p className={['text-[0.82rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
+                <p className="text-[0.7rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
               </div>
             </button>
           );

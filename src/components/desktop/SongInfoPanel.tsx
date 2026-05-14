@@ -20,7 +20,7 @@ const SongInfoPanel = () => {
     return (
       <aside
         className="flex flex-col flex-shrink-0 border-l items-center justify-center"
-        style={{ width: '20%', minWidth: '180px', maxWidth: '260px', borderColor: 'rgba(255,255,255,0.06)' }}
+        style={{ width: '25%', minWidth: '200px', maxWidth: '320px', borderColor: 'rgba(255,255,255,0.06)' }}
       >
         <div className="flex flex-col items-center gap-3 px-6 text-center">
           <div className="w-16 h-16 rounded-2xl bg-swara-elevated flex items-center justify-center text-swara-dim text-2xl">♪</div>
@@ -33,7 +33,7 @@ const SongInfoPanel = () => {
   return (
     <aside
       className="flex flex-col flex-shrink-0 border-l overflow-hidden"
-      style={{ width: '20%', minWidth: '180px', maxWidth: '260px', borderColor: 'rgba(255,255,255,0.06)' }}
+      style={{ width: '25%', minWidth: '200px', maxWidth: '320px', borderColor: 'rgba(255,255,255,0.06)' }}
     >
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pt-5 pb-4">
         {/* Cover */}
@@ -50,19 +50,19 @@ const SongInfoPanel = () => {
 
         {/* Track info */}
         <div className="mb-4">
-          <h3 className="text-[0.95rem] font-bold text-swara-text tracking-tight leading-snug mb-0.5 font-display line-clamp-2">
+          <h3 className="text-[1.02rem] font-bold text-swara-text tracking-tight leading-snug mb-0.5 font-display line-clamp-2">
             {currentTrack.title}
           </h3>
-          <p className="text-[0.78rem] text-swara-muted truncate">{currentTrack.artist}</p>
+          <p className="text-[0.82rem] text-swara-muted truncate">{currentTrack.artist}</p>
         </div>
 
         {/* Artists section */}
         <div className="border-t pt-4 mb-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-          <p className="text-[0.62rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Artists</p>
+          <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Artists</p>
 
           {currentTrack.artists.length > 0 && (
             <div className="mb-3">
-              <p className="text-[0.65rem] text-swara-dim mb-1.5 font-medium">Singers</p>
+              <p className="text-[0.68rem] text-swara-dim mb-1.5 font-medium">Singers</p>
               <div className="flex flex-col gap-0.5">
                 {currentTrack.artists.map((name) => (
                   <button key={name} type="button"
@@ -77,7 +77,7 @@ const SongInfoPanel = () => {
 
           {currentTrack.composer && (
             <div>
-              <p className="text-[0.65rem] text-swara-dim mb-1.5 font-medium">Composer</p>
+              <p className="text-[0.68rem] text-swara-dim mb-1.5 font-medium">Composer</p>
               <button type="button"
                 onClick={() => navigate(`/artist/${slugify(currentTrack.composer)}`)}
                 className="text-[0.8rem] font-medium text-swara-text hover:text-swara-accent text-left transition-colors truncate max-w-full">
@@ -90,7 +90,7 @@ const SongInfoPanel = () => {
         {/* Next queue */}
         {nextTracks.length > 0 && (
           <div className="border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-            <p className="text-[0.62rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Next Playing</p>
+            <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Next Playing</p>
             <div className="flex flex-col gap-0">
               {nextTracks.map((track, i) => (
                 <div key={track.id}
@@ -101,8 +101,8 @@ const SongInfoPanel = () => {
                     loading="lazy"
                     onError={(e) => { (e.target as HTMLImageElement).src = PH; }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.75rem] font-medium text-swara-text truncate">{track.title}</p>
-                    <p className="text-[0.65rem] text-swara-muted truncate">{track.artist}</p>
+                    <p className="text-[0.8rem] font-medium text-swara-text truncate">{track.title}</p>
+                    <p className="text-[0.7rem] text-swara-muted truncate">{track.artist}</p>
                   </div>
                 </div>
               ))}

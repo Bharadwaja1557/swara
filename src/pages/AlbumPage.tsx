@@ -183,7 +183,7 @@ const AlbumPage = () => {
       <div className="px-6">
         {/* Cover */}
         <div className="flex justify-center mb-5">
-          <div className="w-[200px] h-[200px] rounded-2xl overflow-hidden bg-swara-card"
+          <div className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl overflow-hidden bg-swara-card flex-shrink-0"
             style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
             <img src={coverSrc} alt={album.title} className="w-full h-full object-cover" loading="eager"
               onError={() => setCoverErr(true)} />

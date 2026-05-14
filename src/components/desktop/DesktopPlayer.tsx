@@ -29,7 +29,7 @@ const DesktopPlayer = () => {
 
   if (!currentTrack) {
     return (
-      <div className="flex-shrink-0 h-[80px] flex items-center justify-center border-t"
+      <div className="flex-shrink-0 h-[88px] flex items-center justify-center border-t"
         style={{ background: 'rgba(10,10,12,0.98)', borderColor: 'rgba(255,255,255,0.06)' }}>
         <p className="text-[0.78rem] text-swara-dim">Select a track to start playing</p>
       </div>
@@ -69,15 +69,9 @@ const DesktopPlayer = () => {
   return (
     <div
       className="flex-shrink-0 border-t"
-      style={{ background: 'rgba(10,10,12,0.98)', borderColor: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(24px)', height: '80px' }}
+      style={{ background: 'rgba(10,10,12,0.98)', borderColor: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(24px)', height: '88px' }}
     >
-      {/* Top progress bar */}
-      <div className="relative h-[2px]" style={{ background: 'rgba(255,255,255,0.06)' }}>
-        <div className="absolute top-0 left-0 h-full bg-swara-accent"
-          style={{ width: `${progress * 100}%`, transition: 'width 0.25s linear' }} />
-      </div>
-
-      <div className="flex items-center h-[78px] px-5 gap-4">
+      <div className="flex items-center h-full px-5 gap-4 pb-1">
 
         {/* LEFT — cover + track info */}
         <div className="flex items-center gap-3 w-[22%] min-w-0 flex-shrink-0">
@@ -90,8 +84,8 @@ const DesktopPlayer = () => {
           <div className="flex-1 min-w-0">
             <button type="button" onClick={() => setExpanded(true)}
               className="block w-full text-left hover:text-swara-accent transition-colors">
-              <p className="text-[0.88rem] font-semibold text-swara-text truncate leading-snug">{currentTrack.title}</p>
-              <p className="text-[0.72rem] text-swara-muted truncate">{currentTrack.artist}</p>
+              <p className="text-[0.92rem] font-semibold text-swara-text truncate leading-snug">{currentTrack.title}</p>
+              <p className="text-[0.76rem] text-swara-muted truncate">{currentTrack.artist}</p>
             </button>
           </div>
         </div>
@@ -159,7 +153,7 @@ const DesktopPlayer = () => {
 
           {/* Seek bar */}
           <div className="flex items-center gap-2.5 w-full max-w-lg">
-            <span className="text-[0.66rem] tabular-nums flex-shrink-0" style={{ color: '#5c5650' }}>
+            <span className="text-[0.7rem] tabular-nums flex-shrink-0" style={{ color: '#5c5650' }}>
               {formatDuration(progress * duration)}
             </span>
             <div className="relative flex-1 h-1 rounded-full cursor-pointer group"
@@ -173,7 +167,7 @@ const DesktopPlayer = () => {
                 className="seek-bar absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 aria-label="Seek" />
             </div>
-            <span className="text-[0.66rem] tabular-nums flex-shrink-0" style={{ color: '#5c5650' }}>
+            <span className="text-[0.7rem] tabular-nums flex-shrink-0" style={{ color: '#5c5650' }}>
               {formatDuration(duration)}
             </span>
           </div>
@@ -188,7 +182,7 @@ const DesktopPlayer = () => {
               aria-label={volume > 0 ? 'Mute' : 'Unmute'}>
               <VolumeIcon v={volume} />
             </button>
-            <div className="relative w-20 h-1 rounded-full cursor-pointer group"
+            <div className="relative w-28 h-1 rounded-full cursor-pointer group"
               style={{ background: 'rgba(255,255,255,0.1)' }}>
               <div className="absolute top-0 left-0 h-full rounded-full pointer-events-none"
                 style={{ width: `${volume * 100}%`, background: 'rgba(255,255,255,0.5)' }} />

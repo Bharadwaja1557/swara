@@ -30,7 +30,7 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
     <button
       type="button"
       onClick={() => navigate(`/album/${albumId}`)}
-      className="flex-shrink-0 flex flex-col text-left active:scale-[0.95] transition-transform duration-150 group"
+      className="flex-shrink-0 flex flex-col text-left active:scale-[0.95] transition-transform duration-150 group lg:max-w-[155px]"
       style={{ width: 'calc((100vw - 52px) / 3)' }}
       aria-label={`Open ${track.album}`}
     >

@@ -48,7 +48,7 @@ const SearchDropdown = ({
 
   return (
     <div
-      className="absolute top-full left-0 right-0 mt-1.5 rounded-2xl overflow-hidden z-50 flex flex-col"
+      className="absolute top-full left-0 right-0 mt-1.5 rounded-2xl overflow-hidden z-[200] flex flex-col"
       style={{ background: '#18181F', border: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 8px 40px rgba(0,0,0,0.7)', maxHeight: '65vh' }}
     >
       {/* Filter chips — only while typing */}
@@ -205,12 +205,12 @@ const DesktopTopBar = () => {
 
   return (
     <header
-      className="flex-shrink-0 flex items-center justify-between gap-6 px-6 h-14 border-b"
+      className="flex-shrink-0 flex items-center justify-between gap-6 px-6 h-[59px] border-b z-40 relative"
       style={{ background: 'rgba(12,12,16,0.98)', borderColor: 'rgba(255,255,255,0.06)', backdropFilter: 'blur(20px)' }}
     >
       {/* Logo */}
       <button type="button" onClick={() => navigate('/')}
-        className="flex-shrink-0 text-[1.4rem] font-bold text-swara-accent tracking-[-0.04em] font-display hover:text-swara-accent-bright transition-colors">
+        className="flex-shrink-0 text-[1.5rem] font-bold text-swara-accent tracking-[-0.04em] font-display hover:text-swara-accent-bright transition-colors">
         swara
       </button>
 
@@ -247,7 +247,7 @@ const DesktopTopBar = () => {
               onChange={(e) => setQuery(e.target.value)}
               onFocus={() => setFocused(true)}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') { setFocused(false); inputRef.current?.blur(); } }}
-              className="w-full rounded-xl pl-9 pr-8 py-2 text-[0.85rem] text-swara-text placeholder:text-swara-dim focus:outline-none transition-all duration-200"
+              className="w-full rounded-xl pl-9 pr-8 py-2 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none transition-all duration-200"
               style={{ background: '#1e1e28', border: `1px solid ${focused ? 'rgba(200,169,106,0.35)' : 'rgba(255,255,255,0.07)'}` }}
               autoComplete="off"
             />
