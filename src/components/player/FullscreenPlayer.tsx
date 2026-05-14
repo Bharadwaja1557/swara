@@ -19,7 +19,7 @@ interface TrackMenuProps {
 const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
   const { currentTrack } = usePlayerStore();
   const { isLiked, toggleLike } = useLikedStore();
-  const { hasTrack, addTrack, removeTrack, isInLibrary } = useLibraryUserStore();
+  const { hasTrack, addTrack, removeTrack } = useLibraryUserStore();
   const { albums } = useLibraryStore();
   const navigate = useNavigate();
 

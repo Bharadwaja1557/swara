@@ -3,7 +3,7 @@
  * Exactly 3 fully visible cards on screen.
  */
 import { useNavigate } from 'react-router-dom';
-import { usePlayerStore, getRecentEntries } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import type { Track } from '@/types/music';
 

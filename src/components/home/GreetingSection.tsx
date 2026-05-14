@@ -1,10 +1,9 @@
-import { getGreeting, getGreetingSubline } from '@/utils/greeting';
+import { getGreetingSubline } from '@/utils/greeting';
 
 interface GreetingSectionProps { username: string; }
 
 const GreetingSection = ({ username }: GreetingSectionProps) => {
   const hour = new Date().getHours();
-  const greeting = getGreeting('');      // get base greeting without name
   const subline  = getGreetingSubline();
 
   // Build greeting with accent-colored username
