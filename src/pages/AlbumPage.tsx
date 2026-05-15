@@ -170,7 +170,7 @@ const AlbumPage = () => {
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       {/* Back bar */}
-      <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 pt-5 pb-3">
+      <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 lg:px-8 pt-5 pb-3">
         <button type="button" onClick={() => navigate(-1)}
           className="w-9 h-9 flex items-center justify-center rounded-full text-swara-muted hover:text-swara-text active:scale-90 transition-all"
           aria-label="Back">
@@ -180,24 +180,37 @@ const AlbumPage = () => {
         </button>
       </div>
 
-      <div className="px-6">
-        {/* Cover */}
-        <div className="flex justify-center mb-5">
-          <div className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl overflow-hidden bg-swara-card flex-shrink-0"
-            style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
-            <img src={coverSrc} alt={album.title} className="w-full h-full object-cover" loading="eager"
-              onError={() => setCoverErr(true)} />
-          </div>
-        </div>
+      {/* ── Desktop hero: cover LEFT + meta RIGHT ── */}
+      <div className="px-6 lg:px-10">
 
-        {/* Meta */}
-        <div className="mb-4">
-          <h1 className="text-[1.3rem] font-bold text-swara-text tracking-tight font-display mb-0.5">{album.title}</h1>
-          <button type="button" onClick={() => navigate(`/artist/${composerId}`)}
-            className="text-[0.88rem] text-swara-accent font-medium hover:text-swara-accent-bright transition-colors">
-            {album.composer}
-          </button>
-          <p className="text-xs text-swara-muted mt-0.5">{album.year}</p>
+        {/* Hero wrapper: stacked on mobile, side-by-side on desktop */}
+        <div className="flex flex-col lg:flex-row lg:items-end lg:gap-10 mb-4 lg:mb-8">
+
+          {/* Cover */}
+          <div className="flex justify-center lg:justify-start mb-5 lg:mb-0 flex-shrink-0">
+            <div className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl overflow-hidden bg-swara-card"
+              style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
+              <img src={coverSrc} alt={album.title} className="w-full h-full object-cover" loading="eager"
+                onError={() => setCoverErr(true)} />
+            </div>
+          </div>
+
+          {/* Meta — stacks below cover on mobile, beside it on desktop */}
+          <div className="lg:flex-1 lg:min-w-0 lg:pb-1">
+            {/* Small label on desktop */}
+            <p className="hidden lg:block text-[0.65rem] font-semibold tracking-[0.14em] uppercase text-swara-dim mb-2">Album</p>
+
+            <h1 className="text-[1.3rem] lg:text-[2.6rem] font-bold text-swara-text tracking-tight font-display mb-0.5 lg:mb-2 lg:leading-none">
+              {album.title}
+            </h1>
+
+            <button type="button" onClick={() => navigate(`/artist/${composerId}`)}
+              className="text-[0.88rem] lg:text-[1.1rem] text-swara-accent font-medium hover:text-swara-accent-bright transition-colors block">
+              {album.composer}
+            </button>
+
+            <p className="text-xs lg:text-[0.92rem] text-swara-muted mt-0.5 lg:mt-1.5">{album.year}</p>
+          </div>
         </div>
 
         {/* Controls bar */}
@@ -230,7 +243,7 @@ const AlbumPage = () => {
       </div>
 
       {/* Track list */}
-      <div className="px-4 pb-8">
+      <div className="px-4 lg:px-8 pb-8">
         {loading && <div className="flex justify-center py-10"><div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" /></div>}
         {error && !loading && <p className="text-swara-muted text-sm text-center py-10">{error}</p>}
         {!loading && !error && (

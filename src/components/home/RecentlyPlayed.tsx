@@ -26,12 +26,13 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
   };
 
   return (
-    /* Each card is exactly 1/3 viewport width minus padding */
+    /* Card width via class so lg: breakpoint can properly override.
+       Inline style was fighting max-width on desktop (inline > class specificity),
+       keeping cards at 100vw-based width and causing subtle overflow → ugly scrollbar. */
     <button
       type="button"
       onClick={() => navigate(`/album/${albumId}`)}
-      className="flex-shrink-0 flex flex-col text-left active:scale-[0.95] transition-transform duration-150 group lg:max-w-[155px]"
-      style={{ width: 'calc((100vw - 52px) / 3)' }}
+      className="flex-shrink-0 flex flex-col text-left active:scale-[0.95] transition-transform duration-150 group [width:calc((100vw_-_52px)/3)] lg:w-[148px]"
       aria-label={`Open ${track.album}`}
     >
       <div className="relative w-full rounded-xl overflow-hidden bg-swara-elevated"

@@ -33,24 +33,29 @@ const ArtistPage = () => {
     </div>
   );
 
-  // Songs sung by this artist (alphabetical)
+  // Songs sorted by release year descending (newest first), fallback to alpha
+  // Match track.album name → album.year for the sort key
   const artistTracks: Track[] = tracks
     .filter((t) => t.artists.some((a) => a.toLowerCase().replace(/\s+/g, '-') === id || a.toLowerCase() === artist.name.toLowerCase()))
-    .sort((a, b) => a.title.localeCompare(b.title));
+    .sort((a, b) => {
+      const yearA = albums.find((alb) => alb.title === a.album)?.year ?? 0;
+      const yearB = albums.find((alb) => alb.title === b.album)?.year ?? 0;
+      return yearB - yearA || a.title.localeCompare(b.title);
+    });
 
-  // Albums where this artist is composer (release order, newest first)
+  // Albums where this artist is composer (release order, newest first — unchanged)
   const composerAlbums: Album[] = artist.composerAlbumIds
     .map((aid) => albums.find((a) => a.id === aid))
     .filter(Boolean)
     .sort((a, b) => (b!.year - a!.year)) as Album[];
 
-  const visibleSongs  = showAllSongs  ? artistTracks    : artistTracks.slice(0, INITIAL);
-  const visibleAlbums = showAllAlbums ? composerAlbums  : composerAlbums.slice(0, INITIAL);
+  const visibleSongs  = showAllSongs  ? artistTracks   : artistTracks.slice(0, INITIAL);
+  const visibleAlbums = showAllAlbums ? composerAlbums : composerAlbums.slice(0, INITIAL);
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       {/* Back */}
-      <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 pt-5 pb-3">
+      <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm flex items-center gap-3 px-4 lg:px-8 pt-5 pb-3">
         <button type="button" onClick={() => navigate(-1)}
           className="w-9 h-9 flex items-center justify-center rounded-full text-swara-muted hover:text-swara-text active:scale-90 transition-all" aria-label="Back">
           <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -59,36 +64,62 @@ const ArtistPage = () => {
         </button>
       </div>
 
-      {/* Hero */}
-      <div className="px-6 pb-4">
-        <div className="flex items-center gap-4 mb-6">
-          <div className="w-20 h-20 rounded-full overflow-hidden bg-swara-card border border-swara-border flex-shrink-0">
-            <img src={artist.coverUrl || PH} alt={artist.name} className="w-full h-full object-cover" />
+      {/* ── Desktop hero: image LEFT + info RIGHT (mirrors album page) ── */}
+      <div className="px-6 lg:px-10">
+        <div className="flex flex-col lg:flex-row lg:items-end lg:gap-10 mb-6 lg:mb-8">
+
+          {/* Artist image — circular, larger on desktop */}
+          <div className="flex justify-center lg:justify-start mb-4 lg:mb-0 flex-shrink-0">
+            <div
+              className="w-20 h-20 lg:w-[200px] lg:h-[200px] rounded-full overflow-hidden bg-swara-card border border-swara-border"
+              style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}
+            >
+              <img src={artist.coverUrl || PH} alt={artist.name} className="w-full h-full object-cover" />
+            </div>
           </div>
-          <div>
-            <h1 className="text-[1.4rem] font-bold text-swara-text tracking-tight font-display">{artist.name}</h1>
-            <p className="text-[0.8rem] text-swara-muted mt-0.5">
+
+          {/* Info */}
+          <div className="lg:flex-1 lg:min-w-0 lg:pb-1 text-center lg:text-left">
+            <p className="hidden lg:block text-[0.65rem] font-semibold tracking-[0.14em] uppercase text-swara-dim mb-2">Artist</p>
+            <h1 className="text-[1.4rem] lg:text-[2.6rem] font-bold text-swara-text tracking-tight font-display lg:leading-none mb-1 lg:mb-2">
+              {artist.name}
+            </h1>
+            <p className="text-[0.8rem] lg:text-[0.92rem] text-swara-muted">
               {artistTracks.length > 0 ? `${artistTracks.length} song${artistTracks.length !== 1 ? 's' : ''}` : ''}
-              {composerAlbums.length > 0 ? ` · ${composerAlbums.length} album${composerAlbums.length !== 1 ? 's' : ''}` : ''}
+              {composerAlbums.length > 0 ? `${artistTracks.length > 0 ? ' · ' : ''}${composerAlbums.length} album${composerAlbums.length !== 1 ? 's' : ''}` : ''}
             </p>
           </div>
         </div>
 
+        {/* Divider */}
+        <div className="h-px bg-swara-border opacity-50 mb-6" />
+
         {/* Songs */}
-        <div className="mb-6">
-          <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-2 px-1">Songs</p>
+        <div className="mb-8">
+          <p className="text-[0.68rem] lg:text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">
+            Songs
+            <span className="ml-2 text-swara-dim normal-case tracking-normal font-normal">
+              (newest first)
+            </span>
+          </p>
           {artistTracks.length === 0 ? (
-            <p className="text-swara-muted text-sm px-2 py-4">No songs sung</p>
+            <p className="text-swara-muted text-sm px-2 py-4">No songs found</p>
           ) : (
             <>
               {visibleSongs.map((track) => (
                 <button key={track.id} type="button"
                   onClick={() => playTrack(track, artistTracks)}
-                  className="flex items-center gap-3 w-full py-2.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <img src={track.coverUrl || PH} alt="" className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+                  className="flex items-center gap-3 w-full py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <img src={track.coverUrl || PH} alt="" className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.88rem] font-medium text-swara-text truncate">{track.title}</p>
-                    <p className="text-[0.72rem] text-swara-muted truncate">{track.album}</p>
+                    <p className="text-[0.88rem] lg:text-[0.95rem] font-medium text-swara-text truncate">{track.title}</p>
+                    <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-muted truncate">
+                      {track.album}
+                      {(() => {
+                        const yr = albums.find((alb) => alb.title === track.album)?.year;
+                        return yr ? ` · ${yr}` : '';
+                      })()}
+                    </p>
                   </div>
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" className="text-swara-dim flex-shrink-0" aria-hidden="true">
                     <polygon points="5 3 19 12 5 21 5 3"/>
@@ -107,15 +138,15 @@ const ArtistPage = () => {
 
         {/* Albums (only if composer) */}
         {composerAlbums.length > 0 && (
-          <div>
-            <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-2 px-1">Albums</p>
+          <div className="pb-8">
+            <p className="text-[0.68rem] lg:text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Albums</p>
             {visibleAlbums.map((album) => (
               <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                className="flex items-center gap-3 w-full py-2.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                <img src={album.coverUrl || PH} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+                className="flex items-center gap-3 lg:gap-4 w-full py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                <img src={album.coverUrl || PH} alt="" className="w-12 h-12 lg:w-[72px] lg:h-[72px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-[0.88rem] font-medium text-swara-text truncate">{album.title}</p>
-                  <p className="text-[0.72rem] text-swara-muted truncate">{album.year}</p>
+                  <p className="text-[0.88rem] lg:text-[0.95rem] font-medium text-swara-text truncate">{album.title}</p>
+                  <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-muted truncate">{album.year}</p>
                 </div>
                 <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
                   <path d="m9 18 6-6-6-6"/>

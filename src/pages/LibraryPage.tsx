@@ -111,22 +111,30 @@ const LibraryPage = () => {
           )}
         </div>
 
-        {/* View toggle */}
+        {/* View toggle — icon-only on mobile, icon+label on desktop */}
         <div className="flex items-center gap-1 bg-swara-card border border-swara-border rounded-lg p-0.5">
           <button type="button" onClick={() => setView('list')}
-            className={['w-8 h-7 flex items-center justify-center rounded-md transition-colors', view === 'list' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
-            aria-label="List view">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+            className={[
+              'flex items-center gap-1.5 h-7 px-2 rounded-md transition-colors',
+              view === 'list' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
+            ].join(' ')}
+            aria-label="List view" aria-pressed={view === 'list'}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
               <path d="M4 6h16M4 12h16M4 18h16"/>
             </svg>
+            <span className="hidden lg:inline text-[0.75rem] font-medium">List</span>
           </button>
           <button type="button" onClick={() => setView('grid')}
-            className={['w-8 h-7 flex items-center justify-center rounded-md transition-colors', view === 'grid' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
-            aria-label="Grid view">
-            <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            className={[
+              'flex items-center gap-1.5 h-7 px-2 rounded-md transition-colors',
+              view === 'grid' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
+            ].join(' ')}
+            aria-label="Grid view" aria-pressed={view === 'grid'}>
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
               <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
             </svg>
+            <span className="hidden lg:inline text-[0.75rem] font-medium">Grid</span>
           </button>
         </div>
       </div>
