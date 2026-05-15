@@ -213,13 +213,13 @@ const LibraryPage = () => {
             <div className="flex flex-col gap-0">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  className="flex items-center gap-4 lg:gap-5 py-3.5 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
                   <img src={album.coverUrl} alt=""
-                    className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated"
+                    className="w-[100px] h-[100px] lg:w-[100px] lg:h-[100px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated"
                     loading="lazy" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.95rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{album.title}</p>
-                    <p className="text-[0.8rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">{album.composer}</p>
+                    <p className="text-[1rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{album.title}</p>
+                    <p className="text-[0.86rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">{album.composer}</p>
                     <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-dim truncate mt-0.5">{album.year}</p>
                   </div>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
@@ -251,13 +251,13 @@ const LibraryPage = () => {
             <div className="flex flex-col gap-0">
               {sortedArtists.map((artist) => (
                 <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <div className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
+                  className="flex items-center gap-4 lg:gap-5 py-3.5 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <div className="w-[100px] h-[100px] lg:w-[100px] lg:h-[100px] rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
                     <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.95rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{artist.name}</p>
-                    <p className="text-[0.8rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">
+                    <p className="text-[1rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{artist.name}</p>
+                    <p className="text-[0.86rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">
                       {artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}
                     </p>
                   </div>

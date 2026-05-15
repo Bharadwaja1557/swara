@@ -94,11 +94,11 @@ const LibraryPanel = () => {
           const active = location.hash.includes(`/album/${album.id}`);
           return (
             <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-              className={['flex items-center gap-2.5 w-full px-2 py-2 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-              <img src={album.coverUrl} alt="" className="w-9 h-9 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+              className={['flex items-center gap-3 w-full px-2 py-3 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
+              <img src={album.coverUrl} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
               <div className="flex-1 min-w-0">
-                <p className={['text-[0.82rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
-                <p className="text-[0.7rem] text-swara-muted truncate">{album.composer}</p>
+                <p className={['text-[0.88rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
+                <p className="text-[0.76rem] text-swara-muted truncate">{album.composer}</p>
               </div>
             </button>
           );
@@ -108,13 +108,13 @@ const LibraryPanel = () => {
           const active = location.hash.includes(`/artist/${artist.id}`);
           return (
             <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-              className={['flex items-center gap-2.5 w-full px-2 py-2 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-              <div className="w-9 h-9 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
+              className={['flex items-center gap-3 w-full px-2 py-3 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
+              <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
                 <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className={['text-[0.82rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
-                <p className="text-[0.7rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
+                <p className={['text-[0.88rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
+                <p className="text-[0.76rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
               </div>
             </button>
           );
