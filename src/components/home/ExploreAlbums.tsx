@@ -16,6 +16,10 @@ const AlbumCard = ({ album, index }: { album: Album; index: number }) => {
     <button
       className={[
         'flex flex-col gap-2.5 text-left group cursor-pointer',
+        // min-w-0 + overflow-hidden let the grid cell contain this item fully.
+        // Without them, long text can push the button past its allocated column
+        // width, causing neighbouring cards to be displaced / overlapped.
+        'min-w-0 w-full overflow-hidden',
         'active:scale-[0.97] transition-transform duration-150',
         'animate-card-in', stagger,
       ].join(' ')}
@@ -23,8 +27,8 @@ const AlbumCard = ({ album, index }: { album: Album; index: number }) => {
       onClick={() => navigate(`/album/${album.id}`)}
       aria-label={`Open ${album.title} by ${album.composer}`}
     >
-      {/* Cover */}
-      <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated shadow-card">
+      {/* Cover — flex-shrink-0 so the square is never compressed by text below */}
+      <div className="relative w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated shadow-card flex-shrink-0">
         <img
           src={album.coverUrl}
           alt={`${album.title}`}
@@ -35,15 +39,16 @@ const AlbumCard = ({ album, index }: { album: Album; index: number }) => {
         <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200" />
       </div>
 
-      {/* Info — name, composer, year only */}
-      <div className="flex flex-col gap-0.5 px-0.5">
+      {/* Info — min-w-0 + overflow-hidden give `truncate` a defined clipping
+          boundary so long titles never expand the card height */}
+      <div className="flex flex-col gap-0.5 px-0.5 min-w-0 w-full overflow-hidden">
         <p className="text-[0.8125rem] font-semibold text-swara-text truncate leading-snug font-display tracking-tight">
           {album.title}
         </p>
         <p className="text-[0.6875rem] text-swara-muted truncate">
           {album.composer}
         </p>
-        <p className="text-[0.625rem] text-swara-dim mt-0.5">
+        <p className="text-[0.625rem] text-swara-dim mt-0.5 truncate">
           {album.year}
         </p>
       </div>
@@ -108,8 +113,9 @@ const ExploreAlbums = ({ albumPool }: ExploreAlbumsProps) => {
         </button>
       </div>
 
-      {/* Mobile: 2 cols (first 4 visible), Desktop: 4 cols (all 8 visible) */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* Mobile: 2 cols (first 4 visible), Desktop: 4 cols (all 8 visible)
+          items-start: each card sizes to its own content — no row-height stretching */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 items-start">
         {visible.map((album, i) => (
           // Items 4-7 hidden on mobile, shown on desktop
           <div key={`${animKey}-${album.id}`} className={i >= 4 ? 'hidden lg:contents' : ''}>

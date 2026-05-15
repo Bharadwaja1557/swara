@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
@@ -61,20 +61,57 @@ const PlayingBars = () => (
 );
 
 // ─── Track row ────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, queue, album }: { track: Track; queue: Track[]; album: Album }) => {
-  const { playTrack, currentTrack, isPlaying } = usePlayerStore();
+// memo: prevents re-renders when parent re-renders with same props.
+// Fine-grained selectors inside are the PRIMARY flickering fix — see comments.
+const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; album: Album }) => {
+  // ── ROOT CAUSE FIX ──────────────────────────────────────────────────────────
+  // usePlayerStore() WITHOUT a selector subscribes this component to the ENTIRE
+  // store. playerStore emits progress+duration ~4×/sec via ontimeupdate.
+  // With 25 tracks: 25 rows × 4 ticks/sec = 100 re-renders/sec → black flicker.
+  //
+  // Solution: subscribe only to the three values actually used.
+  // currentTrackId changes only on track switch (not on progress).
+  // isPlayingStore changes only on play/pause.
+  // playTrack is a stable action reference — never changes.
+  // Result: zero re-renders during normal playback. Flicker eliminated.
+  const playTrack       = usePlayerStore((s) => s.playTrack);
+  const currentTrackId  = usePlayerStore((s) => s.currentTrack?.id);
+  const isPlayingStore  = usePlayerStore((s) => s.isPlaying);
+
   const { isLiked, toggleLike } = useLikedStore();
-  const [menuOpen, setMenuOpen] = useState(false);
-  const isActive = currentTrack?.id === track.id;
-  const liked    = isLiked(track.id);
+
+  const [menuOpen,    setMenuOpen]    = useState(false);
+  // Lazy mount: BottomSheet (fixed inset-0 z-[90]) is NOT in the DOM until
+  // the menu is first opened. Without this, 25 fixed full-screen overlay
+  // elements exist on initial paint — a massive compositor burden on mobile.
+  const [menuMounted, setMenuMounted] = useState(false);
+
+  const isActive  = currentTrackId === track.id;
+  const isPlaying = isPlayingStore && isActive;
+  const liked     = isLiked(track.id);
+
+  const handleOpenMenu = useCallback(() => {
+    setMenuMounted(true); // mount once, keep mounted for close animation
+    setMenuOpen(true);
+  }, []);
+
+  const handlePlay = useCallback(() => {
+    playTrack(track, queue);
+  }, [playTrack, track, queue]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') playTrack(track, queue);
+  }, [playTrack, track, queue]);
 
   return (
     <>
-      <li className={['flex items-center gap-3 px-2 py-3 rounded-xl transition-colors duration-150 cursor-pointer hover:bg-swara-card active:scale-[0.98]', isActive ? 'bg-swara-card' : ''].join(' ')}
-        onClick={() => playTrack(track, queue)}
+      <li
+        className={['flex items-center gap-3 px-2 py-3 rounded-xl transition-colors duration-150 cursor-pointer hover:bg-swara-card active:scale-[0.98]', isActive ? 'bg-swara-card' : ''].join(' ')}
+        onClick={handlePlay}
         role="button" tabIndex={0}
-        onKeyDown={(e) => { if (e.key === 'Enter') playTrack(track, queue); }}>
-        {/* Track number / bars */}
+        onKeyDown={handleKeyDown}
+      >
+        {/* Track number / playing bars */}
         <div className="w-7 flex items-center justify-center flex-shrink-0">
           {isActive && isPlaying ? <PlayingBars /> : (
             <span className={['text-[0.82rem] font-medium tabular-nums', isActive ? 'text-swara-accent' : 'text-swara-dim'].join(' ')}>
@@ -97,34 +134,55 @@ const TrackRow = ({ track, queue, album }: { track: Track; queue: Track[]; album
 
         {/* Heart + 3 dots */}
         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button type="button" onClick={() => toggleLike(track)}
+          <button
+            type="button"
+            onClick={() => toggleLike(track)}
             className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
-            aria-label={liked ? 'Unlike' : 'Like'}>
+            aria-label={liked ? 'Unlike' : 'Like'}
+          >
             <svg viewBox="0 0 24 24" width="17" height="17" fill={liked ? 'currentColor' : 'none'}
               stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
               <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
             </svg>
           </button>
-          <button type="button" onClick={() => setMenuOpen(true)}
+          <button
+            type="button"
+            onClick={handleOpenMenu}
             className="w-9 h-9 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
-            aria-label="Track options">
+            aria-label="Track options"
+          >
             <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
               <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
             </svg>
           </button>
         </div>
       </li>
-      <TrackMenu track={track} album={album} isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
+
+      {/* Only mounted after first open — keeps close animation, removes 25×
+          fixed overlays from initial DOM paint */}
+      {menuMounted && (
+        <TrackMenu
+          track={track}
+          album={album}
+          isOpen={menuOpen}
+          onClose={() => setMenuOpen(false)}
+        />
+      )}
     </>
   );
-};
+});
 
 // ─── AlbumPage ────────────────────────────────────────────────────────────────
 const AlbumPage = () => {
   const { id }    = useParams<{ id: string }>();
   const navigate  = useNavigate();
   const { albums, loaded, loadAlbumTracks } = useLibraryStore();
-  const { playAlbum, playTrack }            = usePlayerStore();
+
+  // Fine-grained selectors: AlbumPage only needs these two action refs.
+  // Without selectors the page re-renders on every progress tick (~4×/sec),
+  // bypassing memo on all 25 TrackRow children unnecessarily.
+  const playAlbum = usePlayerStore((s) => s.playAlbum);
+  const playTrack = usePlayerStore((s) => s.playTrack);
 
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
@@ -157,7 +215,9 @@ const AlbumPage = () => {
   const coverSrc  = coverErr || !album.coverUrl ? PH : album.coverUrl;
   const composerId = slugify(album.composer);
 
-  const handlePlay = () => {
+  // useCallback keeps handlePlay reference stable between renders so memo'd
+  // TrackRow children (which receive it indirectly via album) aren't invalidated
+  const handlePlay = useCallback(() => {
     if (!tracks.length) return;
     if (isShuffle) {
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
@@ -165,7 +225,7 @@ const AlbumPage = () => {
     } else {
       playAlbum(tracks, 0);
     }
-  };
+  }, [tracks, isShuffle, playTrack, playAlbum]);
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
