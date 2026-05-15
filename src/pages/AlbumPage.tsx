@@ -52,10 +52,14 @@ const TrackMenu = ({ track, album, isOpen, onClose }: {
 
 // ─── Playing bars ─────────────────────────────────────────────────────────────
 const PlayingBars = () => (
+  // items-end anchors bars to bottom of container.
+  // transformOrigin: 'bottom' on each bar ensures scaleY shrinks/grows
+  // from the bottom edge upward — correct music equalizer behavior.
+  // Without it, scaleY uses center origin and bars expand both up AND down.
   <div className="flex gap-[2px] items-end justify-center h-[14px]" aria-hidden="true">
     {[{ h: '55%', delay: '0s' }, { h: '100%', delay: '0.15s' }, { h: '40%', delay: '0.3s' }].map((b, i) => (
       <span key={i} className="w-[3px] bg-swara-accent rounded-full"
-        style={{ height: b.h, animation: `eq 0.9s ease-in-out ${b.delay} infinite` }} />
+        style={{ height: b.h, animation: `eq 0.9s ease-in-out ${b.delay} infinite`, transformOrigin: 'bottom' }} />
     ))}
   </div>
 );

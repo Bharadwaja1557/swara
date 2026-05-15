@@ -38,7 +38,7 @@ const DesktopLayout = () => {
           <DesktopNowPlaying />
         ) : (
           <main
-            className="flex-1 overflow-y-auto overflow-x-hidden"
+            className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none"
             style={{ overscrollBehavior: 'none' }}
             id="main-content"
           >

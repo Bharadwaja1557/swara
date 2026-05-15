@@ -89,16 +89,23 @@ const RecentlyPlayed = () => {
         </h2>
       </div>
 
+      {/* Spacer-based padding: more reliable than px-5 on overflow-x-auto containers.
+          On some browsers/platforms, padding-left of a scroll container is collapsed
+          or scrolled over. A real flex child can't be skipped. */}
       <div
-        className="flex gap-3 px-5 overflow-x-auto scrollbar-none pb-1"
-        style={{ scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}
+        className="flex gap-3 overflow-x-auto scrollbar-none pb-1"
+        style={{ scrollSnapType: 'x mandatory', scrollPaddingLeft: '20px', WebkitOverflowScrolling: 'touch' }}
         role="list"
       >
+        {/* Leading spacer — guarantees left breathing room regardless of browser */}
+        <div className="flex-shrink-0 w-5" aria-hidden="true" />
         {recentTracks.map(({ track, albumId }) => (
           <div key={albumId} role="listitem" style={{ scrollSnapAlign: 'start' }}>
             <RecentCard track={track} albumId={albumId} />
           </div>
         ))}
+        {/* Trailing spacer — mirrors leading gap at scroll end */}
+        <div className="flex-shrink-0 w-5" aria-hidden="true" />
       </div>
     </section>
   );

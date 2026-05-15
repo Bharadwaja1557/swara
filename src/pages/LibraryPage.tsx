@@ -1,19 +1,38 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { getRecentEntries } from '@/store/playerStore';
 
-type Tab    = 'Playlists' | 'Albums' | 'Artists';
-type Sort   = 'Recently Played' | 'Recently Added' | 'A-Z' | 'Z-A';
+type Tab      = 'Playlists' | 'Albums' | 'Artists';
+type Sort     = 'Recently Played' | 'Recently Added' | 'A-Z' | 'Z-A';
 type ViewMode = 'list' | 'grid';
 
 const TABS:  Tab[]  = ['Playlists', 'Albums', 'Artists'];
 const SORTS: Sort[] = ['Recently Played', 'Recently Added', 'A-Z', 'Z-A'];
+const PREF_KEY = 'swara_library_prefs';
+
+// ── Persistence helpers ───────────────────────────────────────────────────────
+// Read synchronously in useState initializer — no flicker on restore.
+function loadPrefs(): { sort: Sort; view: ViewMode } {
+  try {
+    const raw = localStorage.getItem(PREF_KEY);
+    if (!raw) return { sort: 'Recently Played', view: 'list' };
+    const p = JSON.parse(raw) as { sort?: Sort; view?: ViewMode };
+    return {
+      sort: (SORTS as string[]).includes(p.sort ?? '') ? (p.sort as Sort) : 'Recently Played',
+      view: p.view === 'grid' ? 'grid' : 'list',
+    };
+  } catch { return { sort: 'Recently Played', view: 'list' }; }
+}
+function savePrefs(sort: Sort, view: ViewMode) {
+  try { localStorage.setItem(PREF_KEY, JSON.stringify({ sort, view })); } catch {}
+}
 
 const LibraryPage = () => {
   const [tab,      setTab]      = useState<Tab>('Albums');
-  const [sort,     setSort]     = useState<Sort>('Recently Played');
-  const [view,     setView]     = useState<ViewMode>('list');
+  // Initializers run once and read from localStorage — sort/view restore on refresh
+  const [sort,     setSort]     = useState<Sort>(() => loadPrefs().sort);
+  const [view,     setView]     = useState<ViewMode>(() => loadPrefs().view);
   const [sortOpen, setSortOpen] = useState(false);
 
   const navigate = useNavigate();
@@ -52,15 +71,28 @@ const LibraryPage = () => {
     return list;
   }, [artists, sort]);
 
+  // Persist sort + view whenever they change
+  const handleSetSort = useCallback((s: Sort) => {
+    setSort(s);
+    setSortOpen(false);
+    savePrefs(s, view);
+  }, [view]);
+
+  const handleSetView = useCallback((v: ViewMode) => {
+    setView(v);
+    savePrefs(sort, v);
+  }, [sort]);
+
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
-      {/* Header */}
+
+      {/* ── Header ── */}
       <div className="px-5 lg:px-8 pt-6 pb-2">
         <h1 className="text-[1.5rem] font-bold text-swara-text tracking-tight font-display mb-4">
           My Library
         </h1>
 
-        {/* Filter chips */}
+        {/* Filter chips — identical on mobile and desktop */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
           {TABS.map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)}
@@ -76,10 +108,12 @@ const LibraryPage = () => {
         </div>
       </div>
 
+      {/* Divider */}
       <div className="mx-5 lg:mx-8 h-px bg-swara-border opacity-50 mb-3" />
 
-      {/* Sort + View controls */}
-      <div className="flex items-center justify-between px-5 lg:px-8 mb-3 relative">
+      {/* ── Sort + View controls — same hierarchy on mobile and desktop ── */}
+      <div className="flex items-center justify-between px-5 lg:px-8 mb-4 relative">
+
         {/* Sort dropdown */}
         <div className="relative">
           <button type="button" onClick={() => setSortOpen((o) => !o)}
@@ -97,13 +131,14 @@ const LibraryPage = () => {
             <div className="absolute top-full left-0 mt-2 z-20 bg-swara-elevated border border-swara-border rounded-xl overflow-hidden shadow-lg min-w-[180px]">
               {SORTS.map((s) => (
                 <button key={s} type="button"
-                  onClick={() => { setSort(s); setSortOpen(false); }}
+                  onClick={() => handleSetSort(s)}
                   className={[
                     'flex items-center gap-2 w-full px-4 py-2.5 text-[0.85rem] text-left transition-colors hover:bg-swara-card',
                     sort === s ? 'text-swara-accent' : 'text-swara-text',
                   ].join(' ')}>
-                  {sort === s && <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>}
-                  {sort !== s && <span className="w-[14px]" />}
+                  {sort === s
+                    ? <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                    : <span className="w-[14px]" />}
                   {s}
                 </button>
               ))}
@@ -113,7 +148,7 @@ const LibraryPage = () => {
 
         {/* View toggle — icon-only on mobile, icon+label on desktop */}
         <div className="flex items-center gap-1 bg-swara-card border border-swara-border rounded-lg p-0.5">
-          <button type="button" onClick={() => setView('list')}
+          <button type="button" onClick={() => handleSetView('list')}
             className={[
               'flex items-center gap-1.5 h-7 px-2 rounded-md transition-colors',
               view === 'list' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
@@ -124,7 +159,7 @@ const LibraryPage = () => {
             </svg>
             <span className="hidden lg:inline text-[0.75rem] font-medium">List</span>
           </button>
-          <button type="button" onClick={() => setView('grid')}
+          <button type="button" onClick={() => handleSetView('grid')}
             className={[
               'flex items-center gap-1.5 h-7 px-2 rounded-md transition-colors',
               view === 'grid' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
@@ -139,9 +174,10 @@ const LibraryPage = () => {
         </div>
       </div>
 
-      {/* Content */}
+      {/* ── Content ── */}
       <div className="px-5 lg:px-8 pb-6">
-        {/* Playlists tab */}
+
+        {/* Playlists */}
         {tab === 'Playlists' && (
           <div className="flex flex-col items-center justify-center py-16 gap-3">
             <div className="w-14 h-14 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim">
@@ -154,32 +190,37 @@ const LibraryPage = () => {
           </div>
         )}
 
-        {/* Albums tab */}
+        {/* Albums */}
         {tab === 'Albums' && (
           view === 'grid' ? (
-            // Mobile: 3 cols — Desktop: 2 cols (larger, better density)
+            // Mobile: 3 cols — Desktop: 2 cols (larger cards)
             <div className="grid grid-cols-3 lg:grid-cols-2 gap-3 lg:gap-4">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className="flex flex-col gap-1.5 text-left active:scale-95 transition-transform">
-                  <div className="w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated">
+                  className="flex flex-col gap-1.5 text-left active:scale-95 transition-transform min-w-0 w-full overflow-hidden">
+                  <div className="w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated flex-shrink-0">
                     <img src={album.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
-                  <p className="text-[0.75rem] lg:text-[0.85rem] font-medium text-swara-text truncate">{album.title}</p>
-                  <p className="text-[0.65rem] lg:text-[0.72rem] text-swara-muted truncate">{album.composer}</p>
+                  <p className="text-[0.75rem] lg:text-[0.85rem] font-medium text-swara-text truncate w-full">{album.title}</p>
+                  <p className="text-[0.65rem] lg:text-[0.72rem] text-swara-muted truncate w-full">{album.composer}</p>
                 </button>
               ))}
             </div>
           ) : (
-            // List view — desktop cover ~150% bigger (48px → 72px)
+            // List view:
+            // Mobile: 72px cover (150% of original 48px), py-3 row
+            // Desktop: 100px cover (150% of previous 72px upgrade), py-4 row
             <div className="flex flex-col gap-0">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className="flex items-center gap-3 lg:gap-4 py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <img src={album.coverUrl} alt="" className="w-12 h-12 lg:w-[72px] lg:h-[72px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <img src={album.coverUrl} alt=""
+                    className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated"
+                    loading="lazy" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.88rem] lg:text-[0.95rem] font-medium text-swara-text truncate">{album.title}</p>
-                    <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-muted truncate">{album.composer} · {album.year}</p>
+                    <p className="text-[0.95rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{album.title}</p>
+                    <p className="text-[0.8rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">{album.composer}</p>
+                    <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-dim truncate mt-0.5">{album.year}</p>
                   </div>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
                     <path d="m9 18 6-6-6-6"/>
@@ -190,31 +231,35 @@ const LibraryPage = () => {
           )
         )}
 
-        {/* Artists tab */}
+        {/* Artists */}
         {tab === 'Artists' && (
           view === 'grid' ? (
-            <div className="grid grid-cols-3 gap-3">
+            // Mobile: 3 cols — Desktop: 4 cols (matches album grid density)
+            <div className="grid grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4">
               {sortedArtists.map((artist) => (
                 <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className="flex flex-col gap-1.5 items-center text-center active:scale-95 transition-transform">
-                  <div className="w-full aspect-square rounded-full overflow-hidden bg-swara-elevated">
+                  className="flex flex-col gap-1.5 items-center text-center active:scale-95 transition-transform min-w-0 w-full overflow-hidden">
+                  <div className="w-full aspect-square rounded-full overflow-hidden bg-swara-elevated flex-shrink-0">
                     <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
-                  <p className="text-[0.75rem] font-medium text-swara-text truncate w-full">{artist.name}</p>
+                  <p className="text-[0.75rem] lg:text-[0.82rem] font-medium text-swara-text truncate w-full">{artist.name}</p>
                 </button>
               ))}
             </div>
           ) : (
+            // List view: same 150% treatment as albums
             <div className="flex flex-col gap-0">
               {sortedArtists.map((artist) => (
                 <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <div className="w-12 h-12 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
+                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <div className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
                     <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-[0.88rem] font-medium text-swara-text truncate">{artist.name}</p>
-                    <p className="text-[0.72rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
+                    <p className="text-[0.95rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{artist.name}</p>
+                    <p className="text-[0.8rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">
+                      {artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}
+                    </p>
                   </div>
                   <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
                     <path d="m9 18 6-6-6-6"/>
