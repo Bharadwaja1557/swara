@@ -2,15 +2,18 @@
  * src/store/likedStore.ts
  *
  * CLOUD IS SOURCE OF TRUTH.
- * localStorage is a write-through cache for instant UI — never authoritative.
+ * localStorage is a write-through cache used only for instant UI on load.
+ * syncFromCloud() REPLACES local state — never merges, never lets stale
+ * cache survive.
  *
- * Startup contract (enforced by AppLayout):
- *   syncFromCloud() is only called AFTER:
- *     1. auth session is restored (isAuthenticated = true)
- *     2. library stubs loaded (loaded = true)
- *     3. all album tracks loaded (tracks[] is fully populated)
+ * Contract (enforced by AppLayout startup sequencer):
+ *   syncFromCloud() is called ONLY after:
+ *     1. auth session confirmed
+ *     2. library.load() complete
+ *     3. ALL album tracks loaded via loadAlbumTracks()
  *
- * toggleLike() is still local-first + async cloud write for instant feedback.
+ * toggleLike() remains optimistic-local + async cloud write.
+ * It does NOT run during syncFromCloud() (startup is single-threaded).
  */
 import { create } from 'zustand';
 import type { Track } from '@/types/music';
@@ -26,25 +29,21 @@ function writeCache(data: Record<string, Track>) {
 }
 
 interface LikedState {
-  liked:     Record<string, Track>;
-  isSyncing: boolean;
+  liked:      Record<string, Track>;
+  isSyncing:  boolean;
+  hydrated:   boolean;   // true once first cloud sync completes
 
   isLiked:        (id: string) => boolean;
   toggleLike:     (track: Track) => boolean;
   getLikedTracks: () => Track[];
-  /**
-   * Replace local state with cloud state.
-   * MUST be called only after library tracks are fully loaded.
-   * Caller (AppLayout) is responsible for that precondition.
-   */
-  syncFromCloud: () => Promise<void>;
+  syncFromCloud:  () => Promise<void>;
 }
 
 export const useLikedStore = create<LikedState>((set, get) => ({
-  // Initialise from cache so the UI renders instantly before sync completes.
-  // This is REPLACED by cloud state once syncFromCloud() runs.
+  // Cache seeds the UI instantly before cloud sync — REPLACED by syncFromCloud.
   liked:     readCache(),
   isSyncing: false,
+  hydrated:  false,
 
   isLiked: (id) => !!get().liked[id],
 
@@ -56,7 +55,7 @@ export const useLikedStore = create<LikedState>((set, get) => ({
     writeCache(liked);
     set({ liked });
 
-    // Optimistic update complete. Cloud write is fire-and-forget.
+    // Cloud write is fire-and-forget — local update already applied.
     if (wasLiked) LikedSongsRepository.unlikeTrack(track.id).catch(() => {});
     else          LikedSongsRepository.likeTrack(track.id).catch(() => {});
 
@@ -69,57 +68,66 @@ export const useLikedStore = create<LikedState>((set, get) => ({
     if (get().isSyncing) return;
     set({ isSyncing: true });
 
-    console.log('[Liked] ── sync started ──────────────────────────');
+    console.log('[Liked] ─────────────────────────────────────────────');
+    console.log('[Liked] sync started');
 
     try {
-      // ── Step 1: fetch canonical IDs from Supabase ──────────────────────
+      // ── 1. Fetch canonical IDs from Supabase ───────────────────────────
       const cloudIds = await LikedSongsRepository.getLikedSongIds();
-      console.log(`[Liked] Cloud IDs fetched: ${cloudIds.length}`, cloudIds);
+      console.log(`[Liked] cloud IDs fetched: ${cloudIds.length}`);
+      console.log('[Liked] cloud IDs:', cloudIds);
 
       if (cloudIds.length === 0) {
-        // Cloud has nothing → local cache must be empty too
         writeCache({});
-        set({ liked: {} });
-        console.log('[Liked] Cloud empty — local cleared');
+        set({ liked: {}, hydrated: true });
+        console.log('[Liked] cloud empty — local cleared, hydration done');
         return;
       }
 
-      // ── Step 2: resolve IDs → Track objects ────────────────────────────
-      // Library MUST be loaded before this point (AppLayout guarantees it).
-      // We use dynamic import to avoid a circular module dependency
-      // (likedStore ↔ libraryStore would be circular if static).
+      // ── 2. Resolve IDs → Track objects ────────────────────────────────
+      // Dynamic import breaks the potential circular dep chain:
+      // likedStore → (dynamic) → libraryStore (no cycle at module level)
       const { useLibraryStore } = await import('@/store/libraryStore');
-      const { tracks: allTracks } = useLibraryStore.getState();
+      const allTracks = useLibraryStore.getState().tracks;
 
-      console.log(`[Liked] Resolving against ${allTracks.length} library tracks`);
+      console.log(`[Liked] library track pool available: ${allTracks.length} tracks`);
+
+      if (allTracks.length === 0) {
+        // This should never happen if AppLayout sequencing is correct.
+        // Log clearly so it's obvious if sequencing breaks again.
+        console.error('[Liked] TRACK POOL IS EMPTY — sync called before library loaded!');
+        console.error('[Liked] Check AppLayout startup sequence. Aborting sync.');
+        return;
+      }
 
       const resolved: Record<string, Track> = {};
-      const missing: string[] = [];
+      const unresolved: string[] = [];
 
       for (const id of cloudIds) {
         const track = allTracks.find((t) => t.id === id);
         if (track) {
           resolved[id] = track;
         } else {
-          missing.push(id);
+          unresolved.push(id);
         }
       }
 
-      console.log(`[Liked] Resolved: ${Object.keys(resolved).length} ✓`);
-      if (missing.length > 0) {
-        console.warn(`[Liked] Unresolved (not in library): ${missing.length}`, missing);
+      console.log(`[Liked] resolved:   ${Object.keys(resolved).length} tracks ✓`);
+      console.log(`[Liked] unresolved: ${unresolved.length} IDs (not in library)`);
+      if (unresolved.length > 0) {
+        console.warn('[Liked] unresolved IDs:', unresolved);
       }
 
-      // ── Step 3: REPLACE local state with cloud state ───────────────────
-      // Cloud is authoritative. This handles:
-      //   - likes added on another device  (new entries appear)
-      //   - unlikes done on another device (stale entries removed)
-      // Previous "merge only missing" logic was wrong: stale local entries
-      // would survive forever and unlikes from other devices were ignored.
+      // ── 3. REPLACE local state with cloud state ────────────────────────
+      // This is not a merge — cloud is authoritative.
+      // Handles both: likes added on another device (appear here)
+      // and unlikes done on another device (disappear here).
       writeCache(resolved);
-      set({ liked: resolved });
+      set({ liked: resolved, hydrated: true });
 
-      console.log('[Liked] ── hydration complete ──', Object.keys(resolved));
+      console.log(`[Liked] Zustand liked count after hydration: ${Object.keys(resolved).length}`);
+      console.log('[Liked] hydration complete');
+      console.log('[Liked] ─────────────────────────────────────────────');
     } catch (err) {
       console.error('[Liked] syncFromCloud error:', err);
     } finally {

@@ -1,14 +1,18 @@
 /**
  * AppLayout — root layout and startup sequencer.
  *
- * STARTUP SEQUENCE (strictly ordered):
- *   1. initialize() — restore auth session from localStorage
- *   2. load()       — fetch library catalogue (album stubs + initial tracks)
- *   3. loadAlbumTracks() — load ALL album track lists (needed for ID resolution)
- *   4. syncFromCloud()   — fetch cloud liked IDs, resolve → Track objects, REPLACE local
+ * STARTUP SEQUENCE (strictly ordered, all steps awaited):
  *
- * Steps 3+4 only run once steps 1+2 are confirmed complete.
- * This ordering is the fix for cross-device liked-song sync failure.
+ *   1. initialize()       — restore Supabase auth session from localStorage
+ *   2. load()             — fetch library catalogue (album stubs, tracks:[])
+ *   3. loadAlbumTracks()  — load ALL album track lists in parallel
+ *                           (fixed: functional set() in libraryStore prevents
+ *                            concurrent calls from overwriting each other)
+ *   4. syncFromCloud()    — fetch liked IDs from Supabase, resolve against
+ *                           the now-complete track pool, REPLACE local state
+ *
+ * Steps 3+4 run only once per session (syncDoneRef guard) and only after
+ * steps 1+2 are confirmed complete (isAuth && loaded).
  */
 import { Outlet } from 'react-router-dom';
 import { useEffect, useRef } from 'react';
@@ -27,7 +31,7 @@ const MobileLayout = () => (
   <div className="flex flex-col h-dvh bg-swara-bg overflow-hidden">
     <main
       id="main-content"
-      className="flex-1 overflow-y-auto overflow-x-hidden"
+      className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-none"
       style={{ overscrollBehavior: 'none' }}
     >
       <Outlet />
@@ -38,7 +42,7 @@ const MobileLayout = () => (
   </div>
 );
 
-// ── Auth splash — shown for the ~100–300ms while session check runs ───────────
+// ── Splash: shown ~100–300 ms while auth check runs ──────────────────────────
 const AuthSplash = () => (
   <div
     className="fixed inset-0 z-[600] flex items-center justify-center"
@@ -53,58 +57,65 @@ const AuthSplash = () => (
   </div>
 );
 
-// ── Root layout ───────────────────────────────────────────────────────────────
+// ── Root ──────────────────────────────────────────────────────────────────────
 const AppLayout = () => {
-  const load       = useLibraryStore((s) => s.load);
-  const loaded     = useLibraryStore((s) => s.loaded);
-  const isDesktop  = useIsDesktop();
+  const load        = useLibraryStore((s) => s.load);
+  const loaded      = useLibraryStore((s) => s.loaded);
+  const isDesktop   = useIsDesktop();
   const initialize  = useAuthStore((s) => s.initialize);
   const initialized = useAuthStore((s) => s.initialized);
   const isAuth      = useAuthStore((s) => s.isAuthenticated);
 
-  // Guard: run the full startup sequence only once per session
+  // Ensures the 3+4 async sequence runs exactly once per browser session.
   const syncDoneRef = useRef(false);
 
   // ── Step 1: restore auth session ─────────────────────────────────────────
   useEffect(() => {
     initialize();
-  }, [initialize]); // eslint-disable-line
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Step 2: load library catalogue (only after auth confirmed) ────────────
+  // ── Step 2: load library stubs (album metadata, tracks:[]) ───────────────
   useEffect(() => {
     if (isAuth) load();
   }, [isAuth, load]);
 
-  // ── Steps 3 + 4: full liked-songs sync sequence ───────────────────────────
-  // Runs only when BOTH auth AND library stubs are confirmed ready.
-  // This is the only place syncFromCloud() is called — the fix for the
-  // cross-device sync failure caused by calling it prematurely in
-  // onAuthStateChange (before library tracks were available).
+  // ── Steps 3 + 4: load all track data, then hydrate liked store ────────────
   useEffect(() => {
-    if (!isAuth || !loaded) return;       // wait for both preconditions
-    if (syncDoneRef.current) return;      // run only once per session
+    if (!isAuth || !loaded)       return;  // wait for preconditions
+    if (syncDoneRef.current)      return;  // run only once
     syncDoneRef.current = true;
 
     (async () => {
-      console.log('[Startup] ── liked sync sequence starting ─────────────────');
-      console.log('[Startup] Auth ✓  Library stubs ✓');
+      console.log('[Startup] ═══════════════════════════════════════════════');
+      console.log('[Startup] Auth ✓  Library stubs ✓  — starting sync sequence');
 
-      // Step 3: ensure ALL album tracks are loaded so track IDs can be resolved
+      // ── Step 3: load ALL album tracks in parallel ─────────────────────
+      // libraryStore.loadAlbumTracks() now uses functional set() so
+      // concurrent calls accumulate correctly instead of overwriting.
       const { albums, loadAlbumTracks } = useLibraryStore.getState();
       const unloaded = albums.filter((a) => a.tracks.length === 0);
 
       if (unloaded.length > 0) {
-        console.log(`[Startup] Loading tracks for ${unloaded.length} albums...`);
+        console.log(`[Startup] Loading tracks for ${unloaded.length} albums in parallel...`);
         await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
-        console.log(`[Startup] Album tracks ready ✓ (${useLibraryStore.getState().tracks.length} total tracks)`);
-      } else {
-        console.log(`[Startup] Tracks already loaded ✓ (${useLibraryStore.getState().tracks.length} total)`);
       }
 
-      // Step 4: sync liked songs — cloud overwrites local
-      console.log('[Startup] Syncing liked songs from cloud...');
+      // Verify the pool is complete before handing off to syncFromCloud.
+      const finalPool = useLibraryStore.getState().tracks;
+      console.log(`[Startup] Track pool complete: ${finalPool.length} tracks across ${albums.length} albums ✓`);
+
+      if (finalPool.length === 0) {
+        console.error('[Startup] ERROR: track pool is empty after loading all albums.');
+        console.error('[Startup] Check library fetch / loadAlbumTracks for errors above.');
+        return; // abort — syncFromCloud would resolve nothing
+      }
+
+      // ── Step 4: cloud → local hydration ──────────────────────────────
+      console.log('[Startup] Handing off to syncFromCloud...');
       await useLikedStore.getState().syncFromCloud();
-      console.log('[Startup] ── startup sequence complete ────────────────────');
+
+      console.log('[Startup] ═══════════════════════════════════════════════');
+      console.log('[Startup] Startup sequence complete.');
     })();
   }, [isAuth, loaded]);
 
