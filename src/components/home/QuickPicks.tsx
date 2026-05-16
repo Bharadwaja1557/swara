@@ -5,9 +5,11 @@
  *  3. Most Played   — Coming Soon
  */
 import { useLibraryStore } from '@/store/libraryStore';
-import { usePlayerStore } from '@/store/playerStore';
-import { pickRandom } from '@/utils/greeting';
-import type { Track } from '@/types/music';
+import { usePlayerStore }  from '@/store/playerStore';
+import { useLikedStore }   from '@/store/likedStore';
+import { useNavigate }     from 'react-router-dom';
+import { pickRandom }      from '@/utils/greeting';
+import type { Track }      from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
@@ -98,9 +100,18 @@ const ShuffleIcon = () => (
   </svg>
 );
 
+const HeartIcon = () => (
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+    <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+  </svg>
+);
+
 const QuickPicks = () => {
   const { albums, tracks, loadAlbumTracks } = useLibraryStore();
   const { playTrack } = usePlayerStore();
+  const navigate      = useNavigate();
+  const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
+  const likedTracks    = getLikedTracks();
 
   // Latest covers (3 newest albums)
   const latestAlbums = [...albums].sort((a, b) => b.year - a.year).slice(0, 3);
@@ -157,6 +168,14 @@ const QuickPicks = () => {
           subtitle="Newest albums in the library"
           trackCount={latestCount}
           onClick={handleLatest}
+        />
+        {/* Liked Songs — navigates to /liked; always rendered */}
+        <PickCard
+          icon={<HeartIcon />}
+          title="Liked Songs"
+          subtitle="Your saved favorites"
+          trackCount={likedTracks.length > 0 ? likedTracks.length : null}
+          onClick={() => navigate('/liked')}
         />
         <PickCard
           coverUrls={pickRandom(allCovers, 4)}

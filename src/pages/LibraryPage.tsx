@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useLikedStore }   from '@/store/likedStore';
 import { getRecentEntries } from '@/store/playerStore';
 
 type Tab      = 'Playlists' | 'Albums' | 'Artists';
@@ -40,6 +41,8 @@ const LibraryPage = () => {
 
   const navigate = useNavigate();
   const { albums, artists } = useLibraryStore();
+  const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
+  const likedCount     = getLikedTracks().length;
 
   const recentAlbumOrder = useMemo(() => {
     const entries = getRecentEntries();
@@ -193,6 +196,34 @@ const LibraryPage = () => {
             <span className="hidden lg:inline text-[0.75rem] font-medium">Grid</span>
           </button>
         </div>
+      </div>
+
+      {/* ── Liked Songs — pinned system playlist, always visible ── */}
+      <div className="px-5 lg:px-8 mb-3">
+        <button
+          type="button"
+          onClick={() => navigate('/liked')}
+          className="flex items-center gap-4 lg:gap-5 w-full py-3 lg:py-3.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left"
+        >
+          {/* Heart artwork */}
+          <div
+            className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-xl flex-shrink-0 flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #1e0b0b 0%, #2d1212 50%, #1a0808 100%)' }}
+          >
+            <svg viewBox="0 0 24 24" width="30" height="30" fill="#c8a96e" aria-hidden="true">
+              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+            </svg>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[1rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">Liked Songs</p>
+            <p className="text-[0.8rem] lg:text-[0.88rem] text-swara-muted truncate mt-0.5">
+              {likedCount > 0 ? `${likedCount} songs` : 'Your saved favorites'}
+            </p>
+          </div>
+          <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
+            <path d="m9 18 6-6-6-6"/>
+          </svg>
+        </button>
       </div>
 
       {/* ── Content ── */}

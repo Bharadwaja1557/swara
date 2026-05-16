@@ -6,6 +6,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useLikedStore }   from '@/store/likedStore';
 import { getRecentEntries } from '@/store/playerStore';
 
 type Tab      = 'Albums' | 'Artists';
@@ -53,6 +54,8 @@ const LibraryPanel = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { albums, artists } = useLibraryStore();
+  const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
+  const likedCount     = getLikedTracks().length;
 
   const recentOrder = useMemo(() => getRecentEntries().map((e) => e.albumId), []);
 
@@ -204,6 +207,30 @@ const LibraryPanel = () => {
 
       {/* ── Scrollable content ── */}
       <div className="flex-1 overflow-y-auto scrollbar-none pb-3">
+
+        {/* Liked Songs — pinned system playlist */}
+        <div className="px-2 pb-1">
+          <button
+            type="button"
+            onClick={() => navigate('/liked')}
+            className={['flex items-center gap-3 w-full px-2 py-3 rounded-xl text-left transition-colors', location.hash.includes('/liked') ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}
+          >
+            <div className="w-14 h-14 rounded-xl flex-shrink-0 flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #1e0b0b 0%, #2d1212 50%, #1a0808 100%)' }}>
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="#c8a96e" aria-hidden="true">
+                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+              </svg>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={['text-[0.88rem] font-medium truncate', location.hash.includes('/liked') ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>
+                Liked Songs
+              </p>
+              <p className="text-[0.76rem] text-swara-muted truncate">
+                {likedCount > 0 ? `${likedCount} songs` : 'Your favorites'}
+              </p>
+            </div>
+          </button>
+        </div>
 
         {/* GRID — Albums */}
         {view === 'grid' && tab === 'Albums' && (
