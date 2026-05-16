@@ -4,11 +4,11 @@ import { useLibraryStore } from '@/store/libraryStore';
 import { getRecentEntries } from '@/store/playerStore';
 
 type Tab      = 'Playlists' | 'Albums' | 'Artists';
-type Sort     = 'Recently Played' | 'Recently Added' | 'A-Z' | 'Z-A';
+type Sort     = 'Recently Played' | 'Recently Added' | 'A-Z' | 'Z-A' | 'Random';
 type ViewMode = 'list' | 'grid';
 
 const TABS:  Tab[]  = ['Playlists', 'Albums', 'Artists'];
-const SORTS: Sort[] = ['Recently Played', 'Recently Added', 'A-Z', 'Z-A'];
+const SORTS: Sort[] = ['Recently Played', 'Recently Added', 'A-Z', 'Z-A', 'Random'];
 const PREF_KEY = 'swara_library_prefs';
 
 // ── Persistence helpers ───────────────────────────────────────────────────────
@@ -34,6 +34,9 @@ const LibraryPage = () => {
   const [sort,     setSort]     = useState<Sort>(() => loadPrefs().sort);
   const [view,     setView]     = useState<ViewMode>(() => loadPrefs().view);
   const [sortOpen, setSortOpen] = useState(false);
+  // shuffleKey: incrementing forces useMemo to re-run Fisher-Yates on next render.
+  // Starts at 0 — first render with sort='Random' already produces a fresh shuffle.
+  const [shuffleKey, setShuffleKey] = useState(0);
 
   const navigate = useNavigate();
   const { albums, artists } = useLibraryStore();
@@ -45,6 +48,14 @@ const LibraryPage = () => {
 
   const sortedAlbums = useMemo(() => {
     const list = [...albums];
+    if (sort === 'Random') {
+      // Fisher-Yates shuffle — re-runs whenever shuffleKey changes (user picks Random)
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      return list;
+    }
     if (sort === 'Recently Played') {
       list.sort((a, b) => {
         const ai = recentAlbumOrder.indexOf(a.id);
@@ -62,19 +73,29 @@ const LibraryPage = () => {
       list.sort((a, b) => b.title.localeCompare(a.title));
     }
     return list;
-  }, [albums, sort, recentAlbumOrder]);
+  }, [albums, sort, recentAlbumOrder, shuffleKey]); // eslint-disable-line
 
   const sortedArtists = useMemo(() => {
     const list = [...artists];
+    if (sort === 'Random') {
+      for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+      }
+      return list;
+    }
     if (sort === 'A-Z') list.sort((a, b) => a.name.localeCompare(b.name));
     else if (sort === 'Z-A') list.sort((a, b) => b.name.localeCompare(a.name));
     return list;
-  }, [artists, sort]);
+  }, [artists, sort, shuffleKey]); // eslint-disable-line
 
   // Persist sort + view whenever they change
   const handleSetSort = useCallback((s: Sort) => {
     setSort(s);
     setSortOpen(false);
+    // Increment shuffleKey each time Random is chosen (even if already active)
+    // so the user can reshuffle by re-selecting it from the dropdown.
+    if (s === 'Random') setShuffleKey((k) => k + 1);
     savePrefs(s, view);
   }, [view]);
 
