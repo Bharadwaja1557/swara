@@ -1,16 +1,51 @@
-import TopBar from '@/components/home/TopBar';
+import TopBar          from '@/components/home/TopBar';
 import GreetingSection from '@/components/home/GreetingSection';
-import RecentlyPlayed from '@/components/home/RecentlyPlayed';
-import QuickPicks from '@/components/home/QuickPicks';
-import ExploreAlbums from '@/components/home/ExploreAlbums';
+import RecentlyPlayed  from '@/components/home/RecentlyPlayed';
+import QuickPicks      from '@/components/home/QuickPicks';
+import ExploreAlbums   from '@/components/home/ExploreAlbums';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useProfileStore } from '@/store/useProfileStore';
 
+// ── Library Stats — minimal footer summary ────────────────────────────────────
+const LibraryStats = () => {
+  const albums = useLibraryStore((s) => s.albums);
+  const tracks = useLibraryStore((s) => s.tracks);
+
+  if (!albums.length) return null;
+
+  return (
+    <div
+      className="flex items-center justify-center gap-6 px-5 py-8"
+      aria-label="Library statistics"
+    >
+      <div className="text-center">
+        <p className="text-[1.05rem] font-bold text-swara-text tabular-nums">{albums.length}</p>
+        <p className="text-[0.63rem] uppercase tracking-[0.14em] mt-0.5" style={{ color: '#3a3830' }}>
+          Albums
+        </p>
+      </div>
+      <div className="w-px h-5 bg-swara-border opacity-40" aria-hidden="true" />
+      <div className="text-center">
+        <p className="text-[1.05rem] font-bold text-swara-text tabular-nums">
+          {tracks.length > 0 ? tracks.length : '…'}
+        </p>
+        <p className="text-[0.63rem] uppercase tracking-[0.14em] mt-0.5" style={{ color: '#3a3830' }}>
+          Tracks
+        </p>
+      </div>
+    </div>
+  );
+};
+
+// ── HomePage ──────────────────────────────────────────────────────────────────
 const HomePage = () => {
   const { albums, loading, error } = useLibraryStore();
+  const displayName = useProfileStore((s) => s.getDisplayName());
+
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
       <TopBar />
-      <GreetingSection username="Neo" />
+      <GreetingSection username={displayName || 'Swara'} />
       <div className="mx-5 mt-3 h-px bg-swara-border opacity-60" aria-hidden="true" />
 
       {error && (
@@ -33,6 +68,8 @@ const HomePage = () => {
               <p className="text-swara-muted text-sm">No albums found in the library.</p>
             </div>
           )}
+          {/* Stats footer — shows total albums + tracks from library */}
+          <LibraryStats />
         </>
       )}
     </div>

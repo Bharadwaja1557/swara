@@ -26,11 +26,12 @@ const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
 
 // ─── Search dropdown ──────────────────────────────────────────────────────────
 const SearchDropdown = ({
-  query, filter, setFilter, recents, onSelectRecent, onClear,
+  query, filter, setFilter, recents, onSelectRecent, onClear, onClose,
   tracks, albums, artists,
 }: {
   query: string; filter: Filter; setFilter: (f: Filter) => void;
   recents: string[]; onSelectRecent: (r: string) => void; onClear: () => void;
+  onClose: () => void;   // collapse the dropdown after any result is selected
   tracks: Track[]; albums: Album[]; artists: Artist[];
 }) => {
   const navigate  = useNavigate();
@@ -104,7 +105,8 @@ const SearchDropdown = ({
               <div className="mb-2">
                 <p className="text-[0.62rem] font-semibold text-swara-muted tracking-widest uppercase px-2 py-1">Songs</p>
                 {mTracks.map((t) => (
-                  <button key={t.id} type="button" onClick={() => playTrack(t, mTracks)}
+                  <button key={t.id} type="button"
+                    onClick={() => { playTrack(t, mTracks); onClose(); }}
                     className="flex items-center gap-2.5 w-full px-2 py-2 rounded-lg hover:bg-swara-card transition-colors text-left">
                     <img src={t.coverUrl} alt="" className="w-8 h-8 rounded-md object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                     <div className="flex-1 min-w-0">
@@ -119,7 +121,8 @@ const SearchDropdown = ({
               <div className="mb-2">
                 <p className="text-[0.62rem] font-semibold text-swara-muted tracking-widest uppercase px-2 py-1">Albums</p>
                 {mAlbums.map((a) => (
-                  <button key={a.id} type="button" onClick={() => navigate(`/album/${a.id}`)}
+                  <button key={a.id} type="button"
+                    onClick={() => { navigate(`/album/${a.id}`); onClose(); }}
                     className="flex items-center gap-2.5 w-full px-2 py-2 rounded-lg hover:bg-swara-card transition-colors text-left">
                     <img src={a.coverUrl} alt="" className="w-8 h-8 rounded-md object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                     <div className="flex-1 min-w-0">
@@ -134,7 +137,8 @@ const SearchDropdown = ({
               <div className="mb-2">
                 <p className="text-[0.62rem] font-semibold text-swara-muted tracking-widest uppercase px-2 py-1">Artists</p>
                 {mArtists.map((a) => (
-                  <button key={a.id} type="button" onClick={() => navigate(`/artist/${a.id}`)}
+                  <button key={a.id} type="button"
+                    onClick={() => { navigate(`/artist/${a.id}`); onClose(); }}
                     className="flex items-center gap-2.5 w-full px-2 py-2 rounded-lg hover:bg-swara-card transition-colors text-left">
                     <div className="w-8 h-8 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
                       <img src={a.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -277,6 +281,7 @@ const DesktopTopBar = () => {
               recents={recents}
               onSelectRecent={handleSelectRecent}
               onClear={() => { localStorage.removeItem(RECENTS_KEY); setRecents([]); }}
+              onClose={() => { setFocused(false); setQuery(''); inputRef.current?.blur(); }}
               tracks={tracks} albums={albums} artists={artists}
             />
           )}

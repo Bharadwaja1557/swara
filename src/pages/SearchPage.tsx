@@ -20,10 +20,10 @@ function pushSearchRecent(q: string) {
 }
 
 // ─── Sub-rows ─────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, queue }: { track: Track; queue: Track[] }) => {
+const TrackRow = ({ track, queue, onPlay }: { track: Track; queue: Track[]; onPlay?: () => void }) => {
   const playTrack = usePlayerStore((s) => s.playTrack);
   return (
-    <button type="button" onClick={() => playTrack(track, queue)}
+    <button type="button" onClick={() => { playTrack(track, queue); onPlay?.(); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <img src={track.coverUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
@@ -267,7 +267,7 @@ const SearchPage = () => {
           <div className="mt-1">
             {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
               <Section title="Songs">
-                {matchedTracks.map((t) => <TrackRow key={t.id} track={t} queue={matchedTracks} />)}
+                {matchedTracks.map((t) => <TrackRow key={t.id} track={t} queue={matchedTracks} onPlay={() => { setQuery(''); inputRef.current?.blur(); }} />)}
               </Section>
             )}
             {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (

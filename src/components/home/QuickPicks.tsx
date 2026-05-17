@@ -106,19 +106,21 @@ const HeartIcon = () => (
   </svg>
 );
 
+// Bar-chart icon: three columns of increasing height — visually "most/top"
+const MostPlayedIcon = () => (
+  <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor" aria-hidden="true">
+    <rect x="3"  y="14" width="4" height="7" rx="1" opacity="0.5"/>
+    <rect x="10" y="9"  width="4" height="12" rx="1" opacity="0.75"/>
+    <rect x="17" y="3"  width="4" height="18" rx="1"/>
+  </svg>
+);
+
 const QuickPicks = () => {
   const { albums, tracks, loadAlbumTracks } = useLibraryStore();
   const { playTrack } = usePlayerStore();
-  const navigate      = useNavigate();
+  const navigate       = useNavigate();
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
   const likedTracks    = getLikedTracks();
-
-  // Latest covers (3 newest albums)
-  const latestAlbums = [...albums].sort((a, b) => b.year - a.year).slice(0, 3);
-  const latestCovers = latestAlbums.map((a) => a.coverUrl);
-
-  // All covers for shuffle
-  const allCovers = albums.map((a) => a.coverUrl);
 
   const ensureAllTracks = async (): Promise<Track[]> => {
     const unloaded = albums.filter((a) => a.tracks.length === 0);
@@ -132,21 +134,6 @@ const QuickPicks = () => {
     const shuffled = pickRandom(allTracks, allTracks.length);
     playTrack(shuffled[0], shuffled);
   };
-
-  const handleLatest = async () => {
-    const unloaded = latestAlbums.filter((a) => a.tracks.length === 0);
-    await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
-    const refreshed = useLibraryStore.getState().albums;
-    const latestTracks = latestAlbums
-      .map((a) => refreshed.find((r) => r.id === a.id))
-      .filter(Boolean)
-      .flatMap((a) => a!.tracks);
-    if (!latestTracks.length) return;
-    playTrack(latestTracks[0], latestTracks);
-  };
-
-  // Count: tracks from 3 newest albums
-  const latestCount = latestAlbums.reduce((s, a) => s + (a.trackCount || 0), 0);
 
   return (
     <section className="px-5 pt-5 pb-2" aria-labelledby="quick-picks-heading">
@@ -163,14 +150,6 @@ const QuickPicks = () => {
           onClick={handleShufflePlay}
         />
         <PickCard
-          coverUrls={latestCovers}
-          title="Latest Uploads"
-          subtitle="Newest albums in the library"
-          trackCount={latestCount}
-          onClick={handleLatest}
-        />
-        {/* Liked Songs — navigates to /liked; always rendered */}
-        <PickCard
           icon={<HeartIcon />}
           title="Liked Songs"
           subtitle="Your saved favorites"
@@ -178,7 +157,7 @@ const QuickPicks = () => {
           onClick={() => navigate('/liked')}
         />
         <PickCard
-          coverUrls={pickRandom(allCovers, 4)}
+          icon={<MostPlayedIcon />}
           title="Most Played"
           subtitle="Your top tracks"
           trackCount={null}

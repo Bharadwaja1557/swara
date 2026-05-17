@@ -32,6 +32,7 @@ import MiniPlayer            from '@/components/player/MiniPlayer';
 import FullscreenPlayer      from '@/components/player/FullscreenPlayer';
 import DesktopLayout         from '@/layouts/DesktopLayout';
 import LoginModal            from '@/components/auth/LoginModal';
+import { ScrollRestorer }    from '@/components/ScrollRestorer';
 
 // ── Mobile shell ──────────────────────────────────────────────────────────────
 const MobileLayout = () => (
@@ -141,7 +142,13 @@ const AppLayout = () => {
   // ── Render ────────────────────────────────────────────────────────────────
   if (!initialized) return <AuthSplash />;
   if (!isAuth)      return <LoginModal />;
-  return isDesktop  ? <DesktopLayout /> : <MobileLayout />;
+  return (
+    <>
+      {/* Scrolls #main-content to top on every route change */}
+      <ScrollRestorer />
+      {isDesktop ? <DesktopLayout /> : <MobileLayout />}
+    </>
+  );
 };
 
 export default AppLayout;

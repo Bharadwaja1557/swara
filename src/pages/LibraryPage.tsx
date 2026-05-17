@@ -265,9 +265,9 @@ const LibraryPage = () => {
             <div className="flex flex-col gap-0">
               {sortedAlbums.map((album) => (
                 <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className="flex items-center gap-4 lg:gap-5 py-3.5 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-3.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
                   <img src={album.coverUrl} alt=""
-                    className="w-[100px] h-[100px] lg:w-[100px] lg:h-[100px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated"
+                    className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-xl object-cover flex-shrink-0 bg-swara-elevated"
                     loading="lazy" />
                   <div className="flex-1 min-w-0">
                     <p className="text-[1rem] lg:text-[1.05rem] font-semibold text-swara-text truncate leading-snug">{album.title}</p>
@@ -303,8 +303,8 @@ const LibraryPage = () => {
             <div className="flex flex-col gap-0">
               {sortedArtists.map((artist) => (
                 <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className="flex items-center gap-4 lg:gap-5 py-3.5 lg:py-4 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
-                  <div className="w-[100px] h-[100px] lg:w-[100px] lg:h-[100px] rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
+                  className="flex items-center gap-4 lg:gap-5 py-3 lg:py-3.5 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left">
+                  <div className="w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
                     <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                   </div>
                   <div className="flex-1 min-w-0">
