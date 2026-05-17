@@ -1,42 +1,94 @@
+/**
+ * src/store/libraryStore.ts
+ *
+ * Central music library state.
+ *
+ * KEY ARCHITECTURE CHANGE — Canonical Metadata Indexes:
+ *   trackMap:  Map<string, Track>   — O(1) ID → Track lookup
+ *   albumMap:  Map<string, Album>   — O(1) ID → Album lookup
+ *   artistMap: Map<string, Artist>  — O(1) ID → Artist lookup
+ *
+ *   These replace repeated .find() calls across the app and are kept
+ *   in sync with every state update.
+ *
+ * Track IDs are deterministic: `${albumId}--${trackNumber}` — e.g.
+ *   "dear-comrade-ost--3". They are stable across reloads and safe
+ *   to store in Supabase (liked_songs.track_id).
+ *
+ * CONCURRENT LOAD FIX:
+ *   loadAlbumTracks() uses the functional set((state) => ...) form.
+ *   This prevents the stale-closure race condition where parallel calls
+ *   via Promise.all would overwrite each other's track data.
+ */
 import { create } from 'zustand';
 import type { Album, Track, Artist } from '@/types/music';
 import { fetchLibrary, fetchAlbumTracks, buildArtistIndex } from '@/utils/library';
 
+// ── Map builders ──────────────────────────────────────────────────────────────
+
+function buildTrackMap(tracks: Track[]): Map<string, Track> {
+  return new Map(tracks.map((t) => [t.id, t]));
+}
+function buildAlbumMap(albums: Album[]): Map<string, Album> {
+  return new Map(albums.map((a) => [a.id, a]));
+}
+function buildArtistMap(artists: Artist[]): Map<string, Artist> {
+  return new Map(artists.map((a) => [a.id, a]));
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+
 interface LibraryState {
+  // Source arrays (for components that need to iterate)
   albums:  Album[];
   tracks:  Track[];
   artists: Artist[];
+
+  // Canonical indexes — O(1) lookup by ID
+  trackMap:  Map<string, Track>;
+  albumMap:  Map<string, Album>;
+  artistMap: Map<string, Artist>;
+
   loading: boolean;
   error:   string | null;
   loaded:  boolean;
 
-  load:           () => Promise<void>;
+  load:            () => Promise<void>;
   loadAlbumTracks: (albumId: string) => Promise<Track[]>;
-  getAlbumById:   (id: string) => Album | undefined;
-  getArtistById:  (id: string) => Artist | undefined;
-  getTrackById:   (id: string) => Track | undefined;
+
+  // O(1) lookup API — use these instead of .find()
+  getTrackById:  (id: string) => Track | undefined;
+  getAlbumById:  (id: string) => Album | undefined;
+  getArtistById: (id: string) => Artist | undefined;
 }
 
 export const useLibraryStore = create<LibraryState>((set, get) => ({
-  albums:  [],
-  tracks:  [],
-  artists: [],
-  loading: false,
-  error:   null,
-  loaded:  false,
+  albums:    [],
+  tracks:    [],
+  artists:   [],
+  trackMap:  new Map(),
+  albumMap:  new Map(),
+  artistMap: new Map(),
+  loading:   false,
+  error:     null,
+  loaded:    false,
 
-  // ── Initial load: album stubs only, no individual track lists ─────────────
+  // ── Initial load: fetches album stubs (tracks:[]) ─────────────────────────
   load: async () => {
     if (get().loaded || get().loading) return;
     set({ loading: true, error: null });
     try {
       const data = await fetchLibrary();
+      const artists = buildArtistIndex(data.albums);
       set({
-        albums:  data.albums,
-        tracks:  data.tracks,
-        artists: data.artists,
-        loading: false,
-        loaded:  true,
+        albums:    data.albums,
+        tracks:    data.tracks,   // [] on first load — populated by loadAlbumTracks
+        artists,
+        trackMap:  buildTrackMap(data.tracks),
+        albumMap:  buildAlbumMap(data.albums),
+        artistMap: buildArtistMap(artists),
+        loading:   false,
+        loaded:    true,
       });
     } catch {
       set({ loading: false, error: 'Unable to load music library' });
@@ -45,21 +97,18 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
   // ── Lazy-load a single album's track list ─────────────────────────────────
   //
-  // CRITICAL FIX — functional set() form:
+  // CRITICAL: uses functional set((state) => ...) form.
   //
-  // The original code captured `albums` BEFORE the `await fetchAlbumTracks()`
-  // call. When many albums load concurrently (Promise.all in AppLayout), every
-  // call holds the same stale empty snapshot. After each fetch resolves, it
-  // patches only its own album into that stale array and calls set(). The LAST
-  // call to complete overwrites `tracks` with only its album's tracks — all
-  // other albums' tracks are discarded from the store.
+  // Without this, concurrent loadAlbumTracks() calls via Promise.all each
+  // capture the same stale `albums` snapshot before any fetch completes.
+  // Each then rebuilds the world from that empty snapshot, and the LAST
+  // call to finish overwrites the store with only its own album's tracks.
   //
-  // Using set((state) => ...) passes the CURRENT live state to the updater at
-  // the moment set() executes (synchronous in Zustand). Concurrent calls now
-  // each read the freshest state — accumulated tracks from every call that
-  // already finished — and add their own on top. All albums' tracks survive.
+  // The functional form passes the LIVE current state to the updater at the
+  // moment set() executes. Since JS is single-threaded, by the time call N's
+  // updater runs, all previously-resolved calls have already applied their
+  // patches. Every call accumulates correctly — all albums' tracks survive.
   loadAlbumTracks: async (albumId: string) => {
-    // Read once here to get the album metadata needed for fetchAlbumTracks.
     const album = get().albums.find((a) => a.id === albumId);
     if (!album) return [];
     if (album.tracks.length > 0) {
@@ -70,19 +119,24 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     try {
       const tracks = await fetchAlbumTracks(album);
 
-      // Functional form: `state` is the LIVE store at call time, not a stale
-      // closure. This is the fix for concurrent loadAlbumTracks overwriting
-      // each other when called with Promise.all.
       set((state) => {
         const updatedAlbums = state.albums.map((a) =>
           a.id === albumId ? { ...a, tracks, trackCount: tracks.length } : a
         );
         const allTracks    = updatedAlbums.flatMap((a) => a.tracks);
         const updatedArtists = buildArtistIndex(updatedAlbums);
-        return { albums: updatedAlbums, tracks: allTracks, artists: updatedArtists };
+
+        return {
+          albums:    updatedAlbums,
+          tracks:    allTracks,
+          artists:   updatedArtists,
+          trackMap:  buildTrackMap(allTracks),
+          albumMap:  buildAlbumMap(updatedAlbums),
+          artistMap: buildArtistMap(updatedArtists),
+        };
       });
 
-      console.log(`[Library] "${albumId}" loaded: ${tracks.length} tracks | pool now: ${get().tracks.length}`);
+      console.log(`[Library] "${albumId}" loaded: ${tracks.length} tracks | pool: ${get().tracks.length}`);
       return tracks;
     } catch (err) {
       console.error(`[Library] Failed to load "${albumId}":`, (err as Error).message);
@@ -90,7 +144,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     }
   },
 
-  getAlbumById:  (id) => get().albums.find((a) => a.id === id),
-  getArtistById: (id) => get().artists.find((a) => a.id === id),
-  getTrackById:  (id) => get().tracks.find((t) => t.id === id),
+  // ── O(1) lookup API ───────────────────────────────────────────────────────
+  getTrackById:  (id) => get().trackMap.get(id),
+  getAlbumById:  (id) => get().albumMap.get(id),
+  getArtistById: (id) => get().artistMap.get(id),
 }));
