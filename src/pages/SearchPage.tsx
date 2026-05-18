@@ -1,23 +1,34 @@
-import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
+/**
+ * SearchPage — unified search + catalog browser (mobile & desktop).
+ *
+ * Layout (when not searching):
+ *   1. Search bar
+ *   2. History section  (below bar, above browse)
+ *   3. Browse buttons   (Albums / Artists / Year)
+ *   4. Browse content   (inline — no navigation away)
+ *
+ * Layout (when searching):
+ *   1. Search bar
+ *   2. Filter chips
+ *   3. Results
+ *
+ * Browse sections show the FULL CATALOG — NOT the user's personal library.
+ * Library (personal) is a separate concept accessible via the Library tab.
+ */
+import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLibraryStore } from '@/store/libraryStore';
-import { usePlayerStore } from '@/store/playerStore';
+import { useLibraryStore }       from '@/store/libraryStore';
+import { usePlayerStore }        from '@/store/playerStore';
+import { useSearchHistoryStore } from '@/store/useSearchHistoryStore';
 import type { Track, Album, Artist } from '@/types/music';
 
-type Filter = 'All' | 'Tracks' | 'Albums' | 'Artists';
-const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
-const RECENTS_KEY = 'swara_search_recents';
-const MAX_PER = 5;
+type Filter      = 'All' | 'Tracks' | 'Albums' | 'Artists';
+type BrowseMode  = 'Albums' | 'Artists' | 'Year' | null;
+type AlbumSort   = 'A-Z' | 'Z-A' | 'Latest' | 'Oldest';
+type YearOrder   = 'latest' | 'oldest';
+type AlbumView   = 'grid' | 'list';
 
-function loadSearchRecents(): string[] {
-  try { return JSON.parse(localStorage.getItem(RECENTS_KEY) ?? '[]'); } catch { return []; }
-}
-function pushSearchRecent(q: string) {
-  if (!q.trim()) return;
-  const list = loadSearchRecents().filter((r) => r !== q);
-  list.unshift(q);
-  localStorage.setItem(RECENTS_KEY, JSON.stringify(list.slice(0, 5)));
-}
+const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
 
 // ─── Sub-rows ─────────────────────────────────────────────────────────────────
 const TrackRow = ({ track, queue, onPlay }: { track: Track; queue: Track[]; onPlay?: () => void }) => {
@@ -42,7 +53,7 @@ const AlbumRow = ({ album }: { album: Album }) => {
   return (
     <button type="button" onClick={() => navigate(`/album/${album.id}`)}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
-      <img src={album.coverUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+      <img src={album.coverUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
         <p className="text-[0.88rem] font-medium text-swara-text truncate">{album.title}</p>
         <p className="text-[0.72rem] text-swara-muted truncate">{album.composer} · {album.year}</p>
@@ -74,36 +85,63 @@ const ArtistRow = ({ artist }: { artist: Artist }) => {
 };
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-  <div className="mb-4">
-    <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-1.5 px-1">{title}</p>
+  <div className="mb-5">
+    <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-2 px-3">{title}</p>
     {children}
   </div>
 );
 
+// ─── Catalog album card (for browse grid) ────────────────────────────────────
+const CatalogAlbumCard = memo(({ album }: { album: Album }) => {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(`/album/${album.id}`)}
+      className="flex flex-col gap-1.5 text-left active:scale-[0.97] transition-transform min-w-0 w-full overflow-hidden">
+      <div className="w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated flex-shrink-0">
+        <img src={album.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+      </div>
+      <p className="text-[0.78rem] font-medium text-swara-text truncate w-full">{album.title}</p>
+      <p className="text-[0.68rem] text-swara-muted truncate w-full">{album.composer}</p>
+    </button>
+  );
+});
+
 // ─── SearchPage ───────────────────────────────────────────────────────────────
 const SearchPage = () => {
   const [query,        setQuery]        = useState('');
-  const [debouncedQ,   setDebouncedQ]   = useState('');       // debounced for filtering
+  const [debouncedQ,   setDebouncedQ]   = useState('');
   const [activeFilter, setActiveFilter] = useState<Filter>('All');
   const [indexing,     setIndexing]     = useState(false);
-  const [recents,      setRecents]      = useState(loadSearchRecents);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
-  // Guard: index once per session — prevents albums→loadAll→effect→albums infinite loop
+  const [browseMode,   setBrowseMode]   = useState<BrowseMode>(null);
+  const [albumSort,    setAlbumSort]    = useState<AlbumSort>('A-Z');
+  const [albumView,    setAlbumView]    = useState<AlbumView>('grid');
+  const [yearOrder,    setYearOrder]    = useState<YearOrder>('latest');
+
+  const inputRef  = useRef<HTMLInputElement>(null);
   const hasIndexed = useRef(false);
 
   const { tracks, albums, artists, loaded } = useLibraryStore();
+  const history = useSearchHistoryStore((s) => s.entries);
+  const pushHistory = useSearchHistoryStore((s) => s.push);
+  const clearHistory = useSearchHistoryStore((s) => s.clear);
+  const removeHistory = useSearchHistoryStore((s) => s.remove);
 
-  // Debounce query → debouncedQ (200 ms keeps typing fast, filtering responsive)
+  // Auto-focus input on mount (especially useful when navigated from desktop top bar)
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  // Debounce query → debouncedQ (200 ms)
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(query), 200);
     return () => clearTimeout(t);
   }, [query]);
 
   const q = debouncedQ.trim().toLowerCase();
+  const isSearching = q.length > 0;
 
-  // ── FIX: same pattern as DesktopTopBar — read store state at call time
-  // so loadAll is stable and never re-triggers from album updates
+  // ── Load all tracks for search (once per session) ─────────────────────────
   const loadAll = useCallback(async () => {
     if (hasIndexed.current) return;
     const { albums: snap, loadAlbumTracks } = useLibraryStore.getState();
@@ -113,174 +151,312 @@ const SearchPage = () => {
     setIndexing(true);
     await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
     setIndexing(false);
-  }, []); // stable — no deps
+  }, []);
 
   useEffect(() => {
     if (!q || !loaded || activeFilter === 'Albums' || activeFilter === 'Artists') return;
     loadAll();
   }, [q, loaded, activeFilter, loadAll]);
 
-  const handleSearch = (val: string) => {
-    setQuery(val);
-  };
+  const handleSearch = (val: string) => setQuery(val);
 
   const handleSubmit = () => {
-    if (q) { pushSearchRecent(query.trim()); setRecents(loadSearchRecents()); }
+    if (q) {
+      pushHistory(query.trim());
+    }
   };
 
-  // ── Filtering — tracks match title ONLY, artists match name ONLY ───────────
-  const matchedTracks = useMemo(() => {
-    if (!q || activeFilter === 'Albums' || activeFilter === 'Artists') return [];
-    return tracks
-      .filter((t) => t.title.toLowerCase().includes(q))
-      .slice(0, MAX_PER);
-  }, [q, tracks, activeFilter]);
+  // ── Filtered results ──────────────────────────────────────────────────────
+  const MAX = 5;
+  const matchedTracks = useMemo(() =>
+    q ? tracks.filter((t) => t.title.toLowerCase().includes(q) || t.artist.toLowerCase().includes(q)).slice(0, MAX) : [],
+  [q, tracks]);
 
-  const matchedAlbums = useMemo(() => {
-    if (!q || activeFilter === 'Tracks' || activeFilter === 'Artists') return [];
-    return albums
-      .filter((a) => a.title.toLowerCase().includes(q) || a.composer.toLowerCase().includes(q))
-      .slice(0, MAX_PER);
-  }, [q, albums, activeFilter]);
+  const matchedAlbums = useMemo(() =>
+    q ? albums.filter((a) => a.title.toLowerCase().includes(q) || a.composer.toLowerCase().includes(q)).slice(0, MAX) : [],
+  [q, albums]);
 
-  const matchedArtists = useMemo(() => {
-    if (!q || activeFilter === 'Tracks' || activeFilter === 'Albums') return [];
-    return artists
-      .filter((a) => a.name.toLowerCase().includes(q))
-      .slice(0, MAX_PER);
-  }, [q, artists, activeFilter]);
+  const matchedArtists = useMemo(() =>
+    q ? artists.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MAX) : [],
+  [q, artists]);
 
   const hasResults = matchedTracks.length > 0 || matchedAlbums.length > 0 || matchedArtists.length > 0;
 
+  // ── Browse: sorted albums ─────────────────────────────────────────────────
+  const browseAlbums = useMemo(() => {
+    const list = [...albums];
+    if (albumSort === 'A-Z')     list.sort((a, b) => a.title.localeCompare(b.title));
+    if (albumSort === 'Z-A')     list.sort((a, b) => b.title.localeCompare(a.title));
+    if (albumSort === 'Latest')  list.sort((a, b) => b.year - a.year);
+    if (albumSort === 'Oldest')  list.sort((a, b) => a.year - b.year);
+    return list;
+  }, [albums, albumSort]);
+
+  const browseArtists = useMemo(() =>
+    [...artists].sort((a, b) => a.name.localeCompare(b.name)),
+  [artists]);
+
+  // ── Browse: albums grouped by year ────────────────────────────────────────
+  const albumsByYear = useMemo(() => {
+    const sorted = [...albums].sort((a, b) =>
+      yearOrder === 'latest' ? b.year - a.year : a.year - b.year
+    );
+    const map = new Map<number, Album[]>();
+    for (const album of sorted) {
+      if (!map.has(album.year)) map.set(album.year, []);
+      map.get(album.year)!.push(album);
+    }
+    return map;
+  }, [albums, yearOrder]);
+
+  // ── Browse section toggle ─────────────────────────────────────────────────
+  const handleBrowse = (mode: BrowseMode) => {
+    setBrowseMode((prev) => prev === mode ? null : mode);
+  };
+
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
-      {/* Search bar — git-play style, sticky */}
-      <div className="sticky top-0 z-10 bg-swara-bg/95 backdrop-blur-sm pt-5 pb-3 px-4">
+
+      {/* ── Search bar ── */}
+      <div className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-5 pb-3">
         <div className="relative">
-          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-swara-muted pointer-events-none">
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="none" aria-hidden="true">
-              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="1.75"/>
-              <line x1="21" y1="21" x2="16.65" y2="16.65" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round"/>
-            </svg>
-          </div>
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-swara-dim pointer-events-none" aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
           <input
             ref={inputRef}
             type="search"
-            placeholder="Songs, artists, albums…"
             value={query}
             onChange={(e) => handleSearch(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { handleSubmit(); inputRef.current?.blur(); } }}
-            className="w-full bg-swara-card border border-swara-border rounded-2xl pl-10 pr-10 py-3 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none focus:border-swara-accent/40 focus:bg-swara-elevated transition-all duration-200"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
+            placeholder="Search catalog…"
             autoComplete="off"
+            spellCheck={false}
+            className="w-full rounded-xl bg-swara-card border border-swara-border pl-9 pr-8 py-2.5 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none focus:border-swara-accent/40 transition-colors"
           />
           {query && (
-            <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-swara-muted hover:text-swara-text transition-colors" aria-label="Clear">
+            <button type="button" onClick={() => { setQuery(''); setDebouncedQ(''); inputRef.current?.focus(); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-swara-dim hover:text-swara-muted transition-colors"
+              aria-label="Clear search">
               <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                <path d="M18 6 6 18M6 6l12 12"/>
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
               </svg>
             </button>
           )}
         </div>
 
-        {/* Filters — only when searching */}
-        {query && (
-          <div className="flex gap-2 mt-3 overflow-x-auto scrollbar-none">
+        {/* Filter chips — only when searching */}
+        {isSearching && (
+          <div className="flex gap-2 mt-3 overflow-x-auto scrollbar-none pb-0.5">
             {FILTERS.map((f) => (
               <button key={f} type="button" onClick={() => setActiveFilter(f)}
                 className={[
-                  'flex-shrink-0 px-4 py-1.5 rounded-full text-[0.8rem] font-medium border transition-all duration-200',
+                  'flex-shrink-0 px-3.5 py-1 rounded-full text-[0.78rem] font-medium border transition-all',
                   activeFilter === f
                     ? 'bg-swara-accent border-swara-accent text-swara-bg'
-                    : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
+                    : 'border-swara-border text-swara-muted hover:text-swara-text',
                 ].join(' ')}>
                 {f}
               </button>
             ))}
+            {indexing && (
+              <div className="flex-shrink-0 flex items-center gap-1.5 text-swara-dim text-[0.72rem] px-1">
+                <div className="w-3 h-3 rounded-full border border-swara-border border-t-swara-accent animate-spin" />
+                Indexing…
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      <div className="px-4 pb-4">
-        {/* Indexing */}
-        {indexing && (
-          <div className="flex flex-col items-center gap-2 mt-10">
-            <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
-            <p className="text-xs text-swara-dim">Indexing tracks…</p>
-          </div>
-        )}
+      <div className="px-4 lg:px-8 pb-8">
 
-        {/* Empty state — recent searches + browse */}
-        {!indexing && !q && (
-          <div>
-            {/* Recent searches */}
-            {recents.length > 0 && (
-              <div className="mb-6 mt-2">
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase">Recent Searches</p>
-                  <button type="button" onClick={() => { localStorage.removeItem(RECENTS_KEY); setRecents([]); }}
-                    className="text-[0.72rem] text-swara-accent hover:text-swara-accent-bright transition-colors">
+        {/* ══ NOT SEARCHING: History + Browse ══════════════════════════════════ */}
+        {!isSearching && (
+          <>
+            {/* ── History section ── */}
+            {history.length > 0 && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase px-1">History</p>
+                  <button type="button" onClick={clearHistory}
+                    className="text-[0.72rem] text-swara-dim hover:text-swara-muted transition-colors px-1">
                     Clear
                   </button>
                 </div>
-                {recents.map((r) => (
-                  <button key={r} type="button"
-                    onClick={() => { setQuery(r); inputRef.current?.focus(); }}
-                    className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card transition-colors text-left">
-                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
-                      <path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/>
-                    </svg>
-                    <span className="text-[0.88rem] text-swara-muted">{r}</span>
-                  </button>
-                ))}
+                <div className="flex flex-col gap-0">
+                  {history.map((entry) => (
+                    <div key={entry.id} className="flex items-center gap-0">
+                      <button type="button"
+                        onClick={() => { setQuery(entry.query); inputRef.current?.focus(); }}
+                        className="flex-1 flex items-center gap-2.5 py-2 px-3 rounded-xl hover:bg-swara-card text-left transition-colors group">
+                        {/* Clock icon */}
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
+                          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+                        </svg>
+                        <span className="text-[0.88rem] text-swara-text truncate">{entry.query}</span>
+                      </button>
+                      <button type="button" onClick={() => removeHistory(entry.id)}
+                        className="w-9 h-9 flex items-center justify-center text-swara-dim hover:text-swara-muted transition-colors flex-shrink-0"
+                        aria-label={`Remove "${entry.query}" from history`}>
+                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Browse */}
-            <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Browse</p>
-            <div className="grid grid-cols-3 gap-3">
-              {[
-                { label: 'Albums', path: '/library?tab=albums', icon: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> },
-                { label: 'Artists', path: '/library?tab=artists', icon: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg> },
-                { label: 'By Year', path: '/library?tab=year', icon: <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg> },
-              ].map(({ label, path, icon }) => (
-                <button key={label} type="button" onClick={() => navigate(path)}
-                  className="flex flex-col items-center gap-2.5 py-5 bg-swara-card border border-swara-border rounded-2xl text-swara-muted text-[0.8rem] font-medium active:scale-95 hover:border-swara-accent/30 hover:text-swara-text transition-all duration-200">
-                  <div className="text-swara-accent">{icon}</div>
-                  {label}
-                </button>
-              ))}
+            {/* ── Browse buttons ── */}
+            <div className="mb-4">
+              <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Browse</p>
+              <div className="flex gap-2 flex-wrap">
+                {(['Albums', 'Artists', 'Year'] as BrowseMode[]).map((mode) => (
+                  <button key={mode} type="button" onClick={() => handleBrowse(mode)}
+                    className={[
+                      'flex items-center gap-1.5 px-4 py-2 rounded-full text-[0.82rem] font-medium border transition-all',
+                      browseMode === mode
+                        ? 'bg-swara-accent border-swara-accent text-swara-bg'
+                        : 'border-swara-border text-swara-muted hover:text-swara-text',
+                    ].join(' ')}>
+                    {mode === 'Albums'  && <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/></svg>}
+                    {mode === 'Artists' && <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>}
+                    {mode === 'Year'    && <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>}
+                    {mode}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+
+            {/* ── Inline browse: Albums ── */}
+            {browseMode === 'Albums' && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <p className="text-[0.82rem] font-semibold text-swara-text">
+                    All Albums <span className="text-swara-dim font-normal">({albums.length})</span>
+                  </p>
+                  <div className="flex items-center gap-2">
+                    {/* Sort */}
+                    <select
+                      value={albumSort}
+                      onChange={(e) => setAlbumSort(e.target.value as AlbumSort)}
+                      className="text-[0.75rem] text-swara-muted bg-swara-card border border-swara-border rounded-lg px-2 py-1 focus:outline-none cursor-pointer">
+                      <option value="A-Z">A–Z</option>
+                      <option value="Z-A">Z–A</option>
+                      <option value="Latest">Latest</option>
+                      <option value="Oldest">Oldest</option>
+                    </select>
+                    {/* View toggle */}
+                    <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-lg p-0.5">
+                      <button type="button" onClick={() => setAlbumView('grid')}
+                        className={['w-6 h-5 flex items-center justify-center rounded transition-colors', albumView === 'grid' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim'].join(' ')}
+                        aria-label="Grid view">
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                          <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+                          <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+                        </svg>
+                      </button>
+                      <button type="button" onClick={() => setAlbumView('list')}
+                        className={['w-6 h-5 flex items-center justify-center rounded transition-colors', albumView === 'list' ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim'].join(' ')}
+                        aria-label="List view">
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                          <path d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+                {albumView === 'grid' ? (
+                  <div className="grid grid-cols-3 lg:grid-cols-4 gap-3">
+                    {browseAlbums.map((a) => <CatalogAlbumCard key={a.id} album={a} />)}
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-0">
+                    {browseAlbums.map((a) => <AlbumRow key={a.id} album={a} />)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Inline browse: Artists ── */}
+            {browseMode === 'Artists' && (
+              <div className="mt-2">
+                <p className="text-[0.82rem] font-semibold text-swara-text mb-3 px-1">
+                  All Artists <span className="text-swara-dim font-normal">({artists.length})</span>
+                </p>
+                <div className="flex flex-col gap-0">
+                  {browseArtists.map((a) => <ArtistRow key={a.id} artist={a} />)}
+                </div>
+              </div>
+            )}
+
+            {/* ── Inline browse: Year ── */}
+            {browseMode === 'Year' && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <p className="text-[0.82rem] font-semibold text-swara-text">Albums by Year</p>
+                  <div className="flex gap-1.5">
+                    {(['latest', 'oldest'] as YearOrder[]).map((o) => (
+                      <button key={o} type="button" onClick={() => setYearOrder(o)}
+                        className={[
+                          'px-3 py-1 rounded-full text-[0.72rem] font-medium border transition-all capitalize',
+                          yearOrder === o ? 'bg-swara-accent border-swara-accent text-swara-bg' : 'border-swara-border text-swara-muted',
+                        ].join(' ')}>
+                        {o === 'latest' ? 'Latest First' : 'Oldest First'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {Array.from(albumsByYear.entries()).map(([year, yearAlbums]) => (
+                  <div key={year} className="mb-5">
+                    <p className="text-[0.65rem] font-semibold text-swara-dim tracking-widest uppercase mb-2 px-1">{year}</p>
+                    <div className="grid grid-cols-3 lg:grid-cols-4 gap-3">
+                      {yearAlbums.map((a) => <CatalogAlbumCard key={a.id} album={a} />)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
-        {/* No results */}
-        {!indexing && q && !hasResults && (
-          <div className="flex flex-col items-center justify-center mt-16 gap-3">
-            <p className="text-sm font-medium text-swara-muted text-center">No results for "{query}"</p>
-            <p className="text-xs text-swara-dim text-center">Try a different keyword</p>
-          </div>
-        )}
+        {/* ══ SEARCHING: Results ════════════════════════════════════════════════ */}
+        {isSearching && (
+          <>
+            {!hasResults && !indexing && (
+              <div className="flex flex-col items-center justify-center py-16 gap-2">
+                <p className="text-[0.9rem] font-medium text-swara-muted">No results for "{debouncedQ}"</p>
+                <p className="text-[0.78rem] text-swara-dim">Try a different spelling or keyword</p>
+              </div>
+            )}
 
-        {/* Results */}
-        {!indexing && q && hasResults && (
-          <div className="mt-1">
-            {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
-              <Section title="Songs">
-                {matchedTracks.map((t) => <TrackRow key={t.id} track={t} queue={matchedTracks} onPlay={() => { setQuery(''); inputRef.current?.blur(); }} />)}
-              </Section>
+            {hasResults && (
+              <>
+                {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
+                  <Section title="Tracks">
+                    {matchedTracks.map((t) => (
+                      <TrackRow key={t.id} track={t} queue={matchedTracks}
+                        onPlay={() => { setQuery(''); inputRef.current?.blur(); }} />
+                    ))}
+                  </Section>
+                )}
+                {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (
+                  <Section title="Albums">
+                    {matchedAlbums.map((a) => <AlbumRow key={a.id} album={a} />)}
+                  </Section>
+                )}
+                {(activeFilter === 'All' || activeFilter === 'Artists') && matchedArtists.length > 0 && (
+                  <Section title="Artists">
+                    {matchedArtists.map((a) => <ArtistRow key={a.id} artist={a} />)}
+                  </Section>
+                )}
+              </>
             )}
-            {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (
-              <Section title="Albums">
-                {matchedAlbums.map((a) => <AlbumRow key={a.id} album={a} />)}
-              </Section>
-            )}
-            {(activeFilter === 'All' || activeFilter === 'Artists') && matchedArtists.length > 0 && (
-              <Section title="Artists">
-                {matchedArtists.map((a) => <ArtistRow key={a.id} artist={a} />)}
-              </Section>
-            )}
-          </div>
+          </>
         )}
       </div>
     </div>

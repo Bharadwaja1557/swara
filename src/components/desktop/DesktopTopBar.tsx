@@ -3,7 +3,7 @@
  * Left: swara logo  |  Center: home icon + search  |  Right: user icon
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
 import type { Track, Album, Artist } from '@/types/music';
@@ -157,8 +157,12 @@ const SearchDropdown = ({
 
 // ─── DesktopTopBar ────────────────────────────────────────────────────────────
 const DesktopTopBar = () => {
-  const navigate = useNavigate();
-  // Subscribe only to what we need for rendering; actions (loadAlbumTracks) are stable Zustand refs
+  const navigate   = useNavigate();
+  const location   = useLocation();
+  // App uses HashRouter so check the hash, not pathname
+  const isSearchPage = location.hash.startsWith('#/search');
+
+  // Subscribe only to what we need for rendering
   const { tracks, albums, artists, loaded } = useLibraryStore();
 
   const [query,      setQuery]      = useState('');
@@ -168,10 +172,19 @@ const DesktopTopBar = () => {
   const [indexing,   setIndexing]   = useState(false);
   const inputRef   = useRef<HTMLInputElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  // Guard: only index once per session — prevents the albums→loadAll→effect→albums loop
   const hasIndexed = useRef(false);
 
-  const showDropdown = focused;
+  // When on SearchPage the main column handles all search UX — the top bar
+  // becomes a passive indicator. Elsewhere, clicking the bar navigates to /search.
+  const handleSearchFocus = useCallback(() => {
+    if (!isSearchPage) {
+      navigate('/search');
+      return;
+    }
+    setFocused(true);
+  }, [isSearchPage, navigate]);
+
+  const showDropdown = focused && !isSearchPage;
 
   // ── FIX: loadAll reads albums from getState() at call time, NOT from reactive
   // closure. This breaks the infinite loop:
@@ -256,14 +269,16 @@ const DesktopTopBar = () => {
             <input
               ref={inputRef}
               type="search"
-              placeholder="Search songs, albums, artists…"
+              placeholder={isSearchPage ? 'Search in main column ↓' : 'Search catalog…'}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              onFocus={() => setFocused(true)}
+              onFocus={handleSearchFocus}
+              onClick={handleSearchFocus}
               onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') { setFocused(false); inputRef.current?.blur(); } }}
               className="w-full rounded-xl pl-9 pr-8 py-2 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none transition-all duration-200"
-              style={{ background: '#1e1e28', border: `1px solid ${focused ? 'rgba(200,169,106,0.35)' : 'rgba(255,255,255,0.07)'}` }}
+              style={{ background: '#1e1e28', border: `1px solid ${focused && !isSearchPage ? 'rgba(200,169,106,0.35)' : 'rgba(255,255,255,0.07)'}`, cursor: isSearchPage ? 'default' : 'text', opacity: isSearchPage ? 0.5 : 1 }}
               autoComplete="off"
+              readOnly={isSearchPage}
             />
             {query && (
               <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }}
