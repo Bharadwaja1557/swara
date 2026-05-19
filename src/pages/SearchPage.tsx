@@ -33,10 +33,10 @@ type AlbumView   = 'grid' | 'list';
 const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
 
 // ─── Sub-rows ─────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, queue, onPlay }: { track: Track; queue: Track[]; onPlay?: () => void }) => {
+const TrackRow = ({ track, queue, onResultClick }: { track: Track; queue: Track[]; onResultClick?: () => void }) => {
   const playTrack = usePlayerStore((s) => s.playTrack);
   return (
-    <button type="button" onClick={() => { playTrack(track, queue); onPlay?.(); }}
+    <button type="button" onClick={() => { onResultClick?.(); playTrack(track, queue); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <img src={track.coverUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
@@ -50,10 +50,10 @@ const TrackRow = ({ track, queue, onPlay }: { track: Track; queue: Track[]; onPl
   );
 };
 
-const AlbumRow = ({ album }: { album: Album }) => {
+const AlbumRow = ({ album, onResultClick }: { album: Album; onResultClick?: () => void }) => {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => navigate(`/album/${album.id}`)}
+    <button type="button" onClick={() => { onResultClick?.(); navigate(`/album/${album.id}`); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <img src={album.coverUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
@@ -67,10 +67,10 @@ const AlbumRow = ({ album }: { album: Album }) => {
   );
 };
 
-const ArtistRow = ({ artist }: { artist: Artist }) => {
+const ArtistRow = ({ artist, onResultClick }: { artist: Artist; onResultClick?: () => void }) => {
   const navigate = useNavigate();
   return (
-    <button type="button" onClick={() => navigate(`/artist/${artist.id}`)}
+    <button type="button" onClick={() => { onResultClick?.(); navigate(`/artist/${artist.id}`); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <div className="w-11 h-11 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
         <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
@@ -478,28 +478,36 @@ const SearchPage = () => {
               </div>
             )}
 
-            {hasResults && (
-              <>
-                {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
-                  <Section title="Tracks">
-                    {matchedTracks.map((t) => (
-                      <TrackRow key={t.id} track={t} queue={matchedTracks}
-                        onPlay={() => { if (!isDesktop) { setQuery(''); inputRef.current?.blur(); } }} />
-                    ))}
-                  </Section>
-                )}
-                {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (
-                  <Section title="Albums">
-                    {matchedAlbums.map((a) => <AlbumRow key={a.id} album={a} />)}
-                  </Section>
-                )}
-                {(activeFilter === 'All' || activeFilter === 'Artists') && matchedArtists.length > 0 && (
-                  <Section title="Artists">
-                    {matchedArtists.map((a) => <ArtistRow key={a.id} artist={a} />)}
-                  </Section>
-                )}
-              </>
-            )}
+            {hasResults && (() => {
+              // Push history whenever the user selects any result.
+              // Defined once here so all three row types share the same callback.
+              const onResultClick = () => {
+                if (effectiveQuery.trim()) pushHistory(effectiveQuery.trim());
+                // On mobile, also clear the local input and collapse keyboard
+                if (!isDesktop) { setQuery(''); inputRef.current?.blur(); }
+              };
+              return (
+                <>
+                  {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
+                    <Section title="Tracks">
+                      {matchedTracks.map((t) => (
+                        <TrackRow key={t.id} track={t} queue={matchedTracks} onResultClick={onResultClick} />
+                      ))}
+                    </Section>
+                  )}
+                  {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (
+                    <Section title="Albums">
+                      {matchedAlbums.map((a) => <AlbumRow key={a.id} album={a} onResultClick={onResultClick} />)}
+                    </Section>
+                  )}
+                  {(activeFilter === 'All' || activeFilter === 'Artists') && matchedArtists.length > 0 && (
+                    <Section title="Artists">
+                      {matchedArtists.map((a) => <ArtistRow key={a.id} artist={a} onResultClick={onResultClick} />)}
+                    </Section>
+                  )}
+                </>
+              );
+            })()}
           </>
         )}
       </div>

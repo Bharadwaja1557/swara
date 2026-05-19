@@ -3,35 +3,53 @@ import GreetingSection from '@/components/home/GreetingSection';
 import RecentlyPlayed  from '@/components/home/RecentlyPlayed';
 import QuickPicks      from '@/components/home/QuickPicks';
 import ExploreAlbums   from '@/components/home/ExploreAlbums';
+import { useMemo } from 'react';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useProfileStore } from '@/store/useProfileStore';
 
-// ── Library Stats — minimal footer summary ────────────────────────────────────
+// ── Library Stats ─────────────────────────────────────────────────────────────
 const LibraryStats = () => {
   const albums = useLibraryStore((s) => s.albums);
   const tracks = useLibraryStore((s) => s.tracks);
 
+  // Deduplicate singers and composers with Sets.
+  // Singers  = unique values across all track.artists arrays.
+  // Composers = unique album.composer values.
+  // Memoized so it only recomputes when the library data changes.
+  const { singerCount, composerCount } = useMemo(() => {
+    const singers   = new Set<string>();
+    const composers = new Set<string>();
+    for (const t of tracks) {
+      for (const name of t.artists) if (name) singers.add(name.trim().toLowerCase());
+    }
+    for (const a of albums) {
+      if (a.composer) composers.add(a.composer.trim().toLowerCase());
+    }
+    return { singerCount: singers.size, composerCount: composers.size };
+  }, [tracks, albums]);
+
   if (!albums.length) return null;
 
+  const Stat = ({ value, label }: { value: number | string; label: string }) => (
+    <div className="flex flex-col items-center gap-0.5">
+      <p className="text-[1.05rem] font-bold text-swara-text tabular-nums leading-none">{value}</p>
+      <p className="text-[0.6rem] uppercase tracking-[0.13em] text-swara-dim mt-0.5">{label}</p>
+    </div>
+  );
+
   return (
-    <div
-      className="flex items-center justify-center gap-6 px-5 py-8"
-      aria-label="Library statistics"
-    >
-      <div className="text-center">
-        <p className="text-[1.05rem] font-bold text-swara-text tabular-nums">{albums.length}</p>
-        <p className="text-[0.63rem] uppercase tracking-[0.14em] mt-0.5" style={{ color: '#3a3830' }}>
-          Albums
-        </p>
-      </div>
-      <div className="w-px h-5 bg-swara-border opacity-40" aria-hidden="true" />
-      <div className="text-center">
-        <p className="text-[1.05rem] font-bold text-swara-text tabular-nums">
-          {tracks.length > 0 ? tracks.length : '…'}
-        </p>
-        <p className="text-[0.63rem] uppercase tracking-[0.14em] mt-0.5" style={{ color: '#3a3830' }}>
-          Tracks
-        </p>
+    <div className="px-5 pt-6 pb-8" aria-label="Library statistics">
+      <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-4 text-center">
+        Catalog
+      </p>
+      <div className="flex items-center justify-center gap-5">
+        <Stat value={albums.length} label="Albums" />
+        <div className="w-px h-4 bg-swara-border opacity-40" aria-hidden="true" />
+        <Stat value={tracks.length > 0 ? tracks.length : '…'} label="Tracks" />
+        <div className="w-px h-4 bg-swara-border opacity-40" aria-hidden="true" />
+        <Stat value={singerCount > 0 ? singerCount : '…'} label="Singers" />
+        <div className="w-px h-4 bg-swara-border opacity-40" aria-hidden="true" />
+        <Stat value={composerCount > 0 ? composerCount : '…'} label="Composers" />
       </div>
     </div>
   );

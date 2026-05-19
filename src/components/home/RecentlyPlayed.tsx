@@ -2,6 +2,7 @@
  * RecentlyPlayed — shows recently played songs (deduped by album).
  * Exactly 3 fully visible cards on screen.
  */
+import { useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -66,6 +67,14 @@ const RecentlyPlayed = () => {
   const { tracks } = useLibraryStore();
   const recentSongs = usePlayerStore((s) => s.recentSongs);
 
+  // Fix: browsers (especially Safari/Chrome) can persist scrollLeft of overflow
+  // containers across navigations. Explicitly reset to 0 after every mount so
+  // the first card is always visible when returning to the home page.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+  }, []);
+
   // Resolve entries → track objects, deduped by albumId (keep most recent)
   const seen = new Set<string>();
   const recentTracks: Array<{ track: Track; albumId: string }> = [];
@@ -93,6 +102,7 @@ const RecentlyPlayed = () => {
           On some browsers/platforms, padding-left of a scroll container is collapsed
           or scrolled over. A real flex child can't be skipped. */}
       <div
+        ref={scrollRef}
         className="flex gap-3 overflow-x-auto scrollbar-none pb-1"
         style={{ scrollSnapType: 'x mandatory', scrollPaddingLeft: '20px', WebkitOverflowScrolling: 'touch' }}
         role="list"
