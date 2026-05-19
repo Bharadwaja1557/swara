@@ -193,12 +193,24 @@ const DesktopTopBar = () => {
     }
   }, [isSearchPage, clearDesktopQuery]);
 
-  // When on SearchPage the top bar IS the search input — enable it fully.
-  // Elsewhere, clicking the bar navigates to /search.
+  // Auto-focus the top bar input whenever the search page is active.
+  // This handles two cases:
+  //   1. User clicks the top bar from a non-search page → navigate('/search') fires
+  //      but never calls focus; this effect picks it up after the route commits.
+  //   2. User navigates directly to /search (e.g. via bottom nav or URL).
+  useEffect(() => {
+    if (!isSearchPage) return;
+    const t = setTimeout(() => inputRef.current?.focus(), 60);
+    return () => clearTimeout(t);
+  }, [isSearchPage]);
+
+  // When on SearchPage the top bar IS the active search input.
+  // Elsewhere, clicking navigates to /search (focus will come from the effect above).
   const handleSearchFocus = useCallback(() => {
     if (!isSearchPage) {
       navigate('/search');
-      return;
+      // Don't return early — let browser keep focus on the input so the
+      // auto-focus effect below fires correctly after the route commits.
     }
     setFocused(true);
   }, [isSearchPage, navigate]);
