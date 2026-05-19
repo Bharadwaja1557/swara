@@ -101,8 +101,11 @@ const DesktopPlayer = () => {
               <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
                 strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
                 style={{ opacity: isShuffle ? 1 : 0.4 }}>
-                <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-                <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
+                <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 1.9-1.7 3.3-1.7H22"/>
+                <path d="m18 2 4 4-4 4"/>
+                <path d="M2 6h1.9c1.5 0 2.9.9 3.5 2.2"/>
+                <path d="m18 14 4 4-4 4"/>
+                <path d="M21.7 16.4c-.3.5-.8.8-1.3 1.1l-.9.5"/>
               </svg>
             </button>
 

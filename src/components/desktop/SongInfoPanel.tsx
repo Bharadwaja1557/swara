@@ -4,17 +4,24 @@
  */
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
+import { useLibraryStore } from '@/store/libraryStore';
 import { slugify } from '@/utils/library';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
 const SongInfoPanel = () => {
   const { currentTrack, isPlaying } = usePlayerStore();
+  const { albums } = useLibraryStore();
   const navigate = useNavigate();
 
   // Re-derive next tracks from actual engine queue on every render
   // (triggers whenever currentTrack or currentIndex changes via zustand)
   const nextTracks = getNextTracks(5);
+
+  // Find the full album object for the current track
+  const currentAlbum = currentTrack
+    ? albums.find((a) => a.id === currentTrack.albumId) ?? null
+    : null;
 
   if (!currentTrack) {
     return (
@@ -86,6 +93,41 @@ const SongInfoPanel = () => {
             </div>
           )}
         </div>
+
+        {/* Album section */}
+        {currentAlbum && (
+          <div className="border-t pt-4 mb-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
+            <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Album</p>
+            <button
+              type="button"
+              onClick={() => navigate(`/album/${currentAlbum.id}`)}
+              className="flex items-center gap-2.5 w-full rounded-xl p-2 hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left group"
+            >
+              <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-swara-elevated">
+                <img
+                  src={currentAlbum.coverUrl || PH}
+                  alt={currentAlbum.title}
+                  className="w-full h-full object-cover"
+                  loading="lazy"
+                  onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
+                />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[0.82rem] font-semibold text-swara-text truncate group-hover:text-swara-accent transition-colors">
+                  {currentAlbum.title}
+                </p>
+                <p className="text-[0.7rem] text-swara-dim truncate">
+                  {currentAlbum.composer} · {currentAlbum.year}
+                </p>
+              </div>
+              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.75"
+                strokeLinecap="round" strokeLinejoin="round"
+                className="text-swara-dim flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true">
+                <path d="m9 18 6-6-6-6"/>
+              </svg>
+            </button>
+          </div>
+        )}
 
         {/* Next queue */}
         {nextTracks.length > 0 && (

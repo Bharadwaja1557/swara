@@ -6,6 +6,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
+import { useDesktopSearchStore } from '@/store/useDesktopSearchStore';
 import type { Track, Album, Artist } from '@/types/music';
 
 const RECENTS_KEY = 'swara_search_recents';
@@ -165,6 +166,9 @@ const DesktopTopBar = () => {
   // Subscribe only to what we need for rendering
   const { tracks, albums, artists, loaded } = useLibraryStore();
 
+  const setDesktopQuery = useDesktopSearchStore((s) => s.setQuery);
+  const clearDesktopQuery = useDesktopSearchStore((s) => s.clearQuery);
+
   const [query,      setQuery]      = useState('');
   const [focused,    setFocused]    = useState(false);
   const [filter,     setFilter]     = useState<Filter>('All');
@@ -174,8 +178,23 @@ const DesktopTopBar = () => {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hasIndexed = useRef(false);
 
-  // When on SearchPage the main column handles all search UX — the top bar
-  // becomes a passive indicator. Elsewhere, clicking the bar navigates to /search.
+  // When on SearchPage, sync query changes into the shared desktop search store
+  useEffect(() => {
+    if (isSearchPage) {
+      setDesktopQuery(query);
+    }
+  }, [query, isSearchPage, setDesktopQuery]);
+
+  // Clear desktop search query when navigating away from search page
+  useEffect(() => {
+    if (!isSearchPage) {
+      clearDesktopQuery();
+      setQuery('');
+    }
+  }, [isSearchPage, clearDesktopQuery]);
+
+  // When on SearchPage the top bar IS the search input — enable it fully.
+  // Elsewhere, clicking the bar navigates to /search.
   const handleSearchFocus = useCallback(() => {
     if (!isSearchPage) {
       navigate('/search');
@@ -269,16 +288,15 @@ const DesktopTopBar = () => {
             <input
               ref={inputRef}
               type="search"
-              placeholder={isSearchPage ? 'Search in main column ↓' : 'Search catalog…'}
+              placeholder="Search catalog…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onFocus={handleSearchFocus}
               onClick={handleSearchFocus}
-              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') { setFocused(false); inputRef.current?.blur(); } }}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSubmit(); if (e.key === 'Escape') { setFocused(false); if (!isSearchPage) { inputRef.current?.blur(); } } }}
               className="w-full rounded-xl pl-9 pr-8 py-2 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none transition-all duration-200"
-              style={{ background: '#1e1e28', border: `1px solid ${focused && !isSearchPage ? 'rgba(200,169,106,0.35)' : 'rgba(255,255,255,0.07)'}`, cursor: isSearchPage ? 'default' : 'text', opacity: isSearchPage ? 0.5 : 1 }}
+              style={{ background: '#1e1e28', border: `1px solid ${focused || isSearchPage ? 'rgba(200,169,106,0.35)' : 'rgba(255,255,255,0.07)'}`, cursor: 'text' }}
               autoComplete="off"
-              readOnly={isSearchPage}
             />
             {query && (
               <button type="button" onClick={() => { setQuery(''); inputRef.current?.focus(); }}

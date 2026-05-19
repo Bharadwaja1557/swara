@@ -17,9 +17,11 @@
  */
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLibraryStore }       from '@/store/libraryStore';
-import { usePlayerStore }        from '@/store/playerStore';
-import { useSearchHistoryStore } from '@/store/useSearchHistoryStore';
+import { useLibraryStore }          from '@/store/libraryStore';
+import { usePlayerStore }           from '@/store/playerStore';
+import { useSearchHistoryStore }    from '@/store/useSearchHistoryStore';
+import { useDesktopSearchStore }    from '@/store/useDesktopSearchStore';
+import { useIsDesktop }             from '@/hooks/useIsDesktop';
 import type { Track, Album, Artist } from '@/types/music';
 
 type Filter      = 'All' | 'Tracks' | 'Albums' | 'Artists';
@@ -117,6 +119,8 @@ const SearchPage = () => {
   const [albumView,    setAlbumView]    = useState<AlbumView>('grid');
   const [yearOrder,    setYearOrder]    = useState<YearOrder>('latest');
 
+  const isDesktop = useIsDesktop();
+
   const inputRef  = useRef<HTMLInputElement>(null);
   const hasIndexed = useRef(false);
 
@@ -126,17 +130,23 @@ const SearchPage = () => {
   const clearHistory = useSearchHistoryStore((s) => s.clear);
   const removeHistory = useSearchHistoryStore((s) => s.remove);
 
-  // Auto-focus input on mount (especially useful when navigated from desktop top bar)
+  // On desktop, query is driven by DesktopTopBar via shared store
+  const desktopStoreQuery = useDesktopSearchStore((s) => s.query);
+  // Effective query: desktop reads from shared store, mobile from local state
+  const effectiveQuery = isDesktop ? desktopStoreQuery : query;
+
+  // Auto-focus input on mount (mobile only — desktop uses top bar search)
   useEffect(() => {
+    if (isDesktop) return;
     const t = setTimeout(() => inputRef.current?.focus(), 80);
     return () => clearTimeout(t);
-  }, []);
+  }, [isDesktop]);
 
-  // Debounce query → debouncedQ (200 ms)
+  // Debounce effectiveQuery → debouncedQ (200 ms)
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedQ(query), 200);
+    const t = setTimeout(() => setDebouncedQ(effectiveQuery), 200);
     return () => clearTimeout(t);
-  }, [query]);
+  }, [effectiveQuery]);
 
   const q = debouncedQ.trim().toLowerCase();
   const isSearching = q.length > 0;
@@ -162,7 +172,7 @@ const SearchPage = () => {
 
   const handleSubmit = () => {
     if (q) {
-      pushHistory(query.trim());
+      pushHistory(effectiveQuery.trim());
     }
   };
 
@@ -217,7 +227,8 @@ const SearchPage = () => {
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
 
-      {/* ── Search bar ── */}
+      {/* ── Search bar — mobile only (desktop uses DesktopTopBar search) ── */}
+      {!isDesktop && (
       <div className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-5 pb-3">
         <div className="relative">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
@@ -270,8 +281,32 @@ const SearchPage = () => {
           </div>
         )}
       </div>
+      )}
 
-      <div className="px-4 lg:px-8 pb-8">
+      <div className="px-4 lg:px-8 pb-8 lg:pt-6">
+
+        {/* Desktop filter chips — shown when desktop is in search mode (no inline bar) */}
+        {isDesktop && isSearching && (
+          <div className="flex gap-2 mb-4 overflow-x-auto scrollbar-none pb-0.5">
+            {FILTERS.map((f) => (
+              <button key={f} type="button" onClick={() => setActiveFilter(f)}
+                className={[
+                  'flex-shrink-0 px-3.5 py-1 rounded-full text-[0.78rem] font-medium border transition-all',
+                  activeFilter === f
+                    ? 'bg-swara-accent border-swara-accent text-swara-bg'
+                    : 'border-swara-border text-swara-muted hover:text-swara-text',
+                ].join(' ')}>
+                {f}
+              </button>
+            ))}
+            {indexing && (
+              <div className="flex-shrink-0 flex items-center gap-1.5 text-swara-dim text-[0.72rem] px-1">
+                <div className="w-3 h-3 rounded-full border border-swara-border border-t-swara-accent animate-spin" />
+                Indexing…
+              </div>
+            )}
+          </div>
+        )}
 
         {/* ══ NOT SEARCHING: History + Browse ══════════════════════════════════ */}
         {!isSearching && (
@@ -429,7 +464,7 @@ const SearchPage = () => {
           <>
             {!hasResults && !indexing && (
               <div className="flex flex-col items-center justify-center py-16 gap-2">
-                <p className="text-[0.9rem] font-medium text-swara-muted">No results for "{debouncedQ}"</p>
+                <p className="text-[0.9rem] font-medium text-swara-muted">No results for "{effectiveQuery}"</p>
                 <p className="text-[0.78rem] text-swara-dim">Try a different spelling or keyword</p>
               </div>
             )}
@@ -440,7 +475,7 @@ const SearchPage = () => {
                   <Section title="Tracks">
                     {matchedTracks.map((t) => (
                       <TrackRow key={t.id} track={t} queue={matchedTracks}
-                        onPlay={() => { setQuery(''); inputRef.current?.blur(); }} />
+                        onPlay={() => { if (!isDesktop) { setQuery(''); inputRef.current?.blur(); } }} />
                     ))}
                   </Section>
                 )}
