@@ -325,7 +325,16 @@ const SearchPage = () => {
                   {history.map((entry) => (
                     <div key={entry.id} className="flex items-center gap-0">
                       <button type="button"
-                        onClick={() => { setQuery(entry.query); inputRef.current?.focus(); }}
+                        onClick={() => {
+                          if (isDesktop) {
+                            // Desktop: write into the shared store so the top bar
+                            // input reflects the selection and SearchPage reacts
+                            useDesktopSearchStore.getState().setQuery(entry.query);
+                          } else {
+                            setQuery(entry.query);
+                            inputRef.current?.focus();
+                          }
+                        }}
                         className="flex-1 flex items-center gap-2.5 py-2 px-3 rounded-xl hover:bg-swara-card text-left transition-colors group">
                         {/* Clock icon */}
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
