@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { usePlayerStore } from '@/store/playerStore';
+import { trackActions } from '@/lib/trackActions';
 import type { Track, Album } from '@/types/music';
 
 const INITIAL = 5;
@@ -21,7 +22,6 @@ const ArtistPage = () => {
   const { id }     = useParams<{ id: string }>();
   const navigate   = useNavigate();
   const { artists, tracks, albums, loaded, loadAlbumTracks } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.id);
   const isPlayingStore = usePlayerStore((s) => s.isPlaying);
   const [showAllSongs,   setShowAllSongs]   = useState(false);
@@ -123,7 +123,11 @@ const ArtistPage = () => {
                 const isPlaying = isActive && isPlayingStore;
                 return (
                   <button key={track.id} type="button"
-                    onClick={() => playTrack(track, artistTracks)}
+                    onClick={() => {
+                      const artist = artists.find((a) => a.id === id);
+                      if (artist) trackActions.playFromArtist(track, artist, artistTracks);
+                      else trackActions.play(track, artistTracks);
+                    }}
                     className={['flex items-center gap-3 w-full py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left', isActive ? 'bg-swara-card' : ''].join(' ')}>
                     <img src={track.coverUrl || PH} alt="" className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
                     <div className="flex-1 min-w-0">

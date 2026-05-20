@@ -103,7 +103,7 @@ const PlayingBars = () => (
 // ─── Track row ────────────────────────────────────────────────────────────────
 // memo: prevents re-renders when parent re-renders with same props.
 // Fine-grained selectors inside are the PRIMARY flickering fix — see comments.
-const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; album: Album }) => {
+const TrackRow = memo(({ track, album }: { track: Track; album: Album }) => {
   // ── ROOT CAUSE FIX ──────────────────────────────────────────────────────────
   // usePlayerStore() WITHOUT a selector subscribes this component to the ENTIRE
   // store. playerStore emits progress+duration ~4×/sec via ontimeupdate.
@@ -134,12 +134,12 @@ const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; 
   }, []);
 
   const handlePlay = useCallback(() => {
-    trackActions.play(track, queue, 'album');
-  }, [track, queue]);
+    trackActions.playFromAlbum(track, album);
+  }, [track, album]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') trackActions.play(track, queue, 'album');
-  }, [track, queue]);
+    if (e.key === 'Enter') trackActions.playFromAlbum(track, album);
+  }, [track, album]);
 
   return (
     <>
@@ -256,11 +256,11 @@ const AlbumPage = () => {
     if (!tracks.length) return;
     if (isShuffle) {
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-      trackActions.play(shuffled[0], shuffled, 'album');
+      trackActions.playManual(shuffled, shuffled[0]);
     } else {
-      trackActions.playAlbum(tracks, 0, 'album');
+      trackActions.playAlbum(album, 0);
     }
-  }, [tracks, isShuffle]);
+  }, [tracks, isShuffle, album]);
 
   const { hasAlbum } = useUserLibraryStore();
   const inLibrary = hasAlbum(album.id);
@@ -373,7 +373,7 @@ const AlbumPage = () => {
         {!loading && !error && (
           <ul className="space-y-0">
             {tracks.map((track) => (
-              <TrackRow key={track.id} track={track} queue={tracks} album={album} />
+              <TrackRow key={track.id} track={track} album={album} />
             ))}
           </ul>
         )}

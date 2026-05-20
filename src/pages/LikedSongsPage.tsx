@@ -13,7 +13,6 @@ import { usePlayerStore } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
 import { trackActions } from '@/lib/trackActions';
 import type { Track } from '@/types/music';
-
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/></svg>';
 
 // ── Heart artwork cover ────────────────────────────────────────────────────────
@@ -49,7 +48,7 @@ const PlayingBars = () => (
 );
 
 // ── Track row ─────────────────────────────────────────────────────────────────
-const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) => {
+const LikedTrackRow = memo(({ track }: { track: Track }) => {
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.id);
   const isPlayingStore = usePlayerStore((s) => s.isPlaying);
   const liked          = useLikedStore((s) => s.isLiked(track.id));
@@ -60,8 +59,8 @@ const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) 
   const isActive  = currentTrackId === track.id;
   const isPlaying = isPlayingStore && isActive;
 
-  const handlePlay     = useCallback(() => trackActions.play(track, queue, 'liked'), [track, queue]);
-  const handleKeyDown  = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') trackActions.play(track, queue, 'liked'); }, [track, queue]);
+  const handlePlay     = useCallback(() => trackActions.playFromLiked(track), [track]);
+  const handleKeyDown  = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') trackActions.playFromLiked(track); }, [track]);
   const handleOpenMenu = useCallback(() => { setMenuMounted(true); setMenuOpen(true); }, []);
 
   return (
@@ -166,10 +165,12 @@ const LikedSongsPage = () => {
 
   const handlePlay = useCallback(() => {
     if (!tracks.length) return;
-    const queue = isShuffle
-      ? [...tracks].sort(() => Math.random() - 0.5)
-      : tracks;
-    trackActions.play(queue[0], queue, 'liked');
+    if (isShuffle) {
+      const shuffled = [...tracks].sort(() => Math.random() - 0.5);
+      trackActions.playManual(shuffled, shuffled[0]);
+    } else {
+      trackActions.playLiked();
+    }
   }, [tracks, isShuffle]);
 
   return (
@@ -253,7 +254,7 @@ const LikedSongsPage = () => {
         ) : (
           <ul className="space-y-0">
             {tracks.map((track) => (
-              <LikedTrackRow key={track.id} track={track} queue={tracks} />
+              <LikedTrackRow key={track.id} track={track} />
             ))}
           </ul>
         )}

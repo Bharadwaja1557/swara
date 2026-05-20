@@ -24,6 +24,7 @@ export const routes = {
   library:  ()          => '/library',
   liked:    ()          => '/liked',
   profile:  ()          => '/profile',
+  queue:    ()          => '/queue',
   album:    (id: string) => `/album/${id}`,
   artist:   (id: string) => `/artist/${id}`,
   playlist: (id: string) => `/playlist/${id}`,   // future

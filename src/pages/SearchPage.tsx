@@ -18,10 +18,10 @@
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useLibraryStore }          from '@/store/libraryStore';
-import { usePlayerStore }           from '@/store/playerStore';
 import { useSearchHistoryStore }    from '@/store/useSearchHistoryStore';
 import { useDesktopSearchStore }    from '@/store/useDesktopSearchStore';
 import { useIsDesktop }             from '@/hooks/useIsDesktop';
+import { trackActions }             from '@/lib/trackActions';
 import type { Track, Album, Artist } from '@/types/music';
 
 type Filter      = 'All' | 'Tracks' | 'Albums' | 'Artists';
@@ -33,10 +33,9 @@ type AlbumView   = 'grid' | 'list';
 const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
 
 // ─── Sub-rows ─────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, queue, onResultClick }: { track: Track; queue: Track[]; onResultClick?: () => void }) => {
-  const playTrack = usePlayerStore((s) => s.playTrack);
+const TrackRow = ({ track, queue, onResultClick, query }: { track: Track; queue: Track[]; onResultClick?: () => void; query: string }) => {
   return (
-    <button type="button" onClick={() => { onResultClick?.(); playTrack(track, queue); }}
+    <button type="button" onClick={() => { onResultClick?.(); trackActions.playFromSearch(track, queue, query); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <img src={track.coverUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
@@ -491,7 +490,7 @@ const SearchPage = () => {
                   {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
                     <Section title="Tracks">
                       {matchedTracks.map((t) => (
-                        <TrackRow key={t.id} track={t} queue={matchedTracks} onResultClick={onResultClick} />
+                        <TrackRow key={t.id} track={t} queue={matchedTracks} onResultClick={onResultClick} query={effectiveQuery} />
                       ))}
                     </Section>
                   )}

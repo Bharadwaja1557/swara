@@ -1,34 +1,33 @@
 /**
  * SongInfoPanel — right column, desktop only.
- * Shows current track info + next 5 from the actual queue.
+ * Shows current track info: cover, source label, track name,
+ * artists, album, and a compact "Next up" queue preview → links to /queue.
  */
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { slugify } from '@/utils/library';
-import type { QueueSource } from '@/store/playerStore';
+import type { QueueContext } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
-const SOURCE_LABELS: Record<NonNullable<QueueSource>, string> = {
-  album:   'Playing from Album',
-  liked:   'Playing from Liked Songs',
-  library: 'Playing from Library',
-  search:  'Playing from Search',
-  artist:  'Playing from Artist',
-  queue:   'Playing from Queue',
+const CONTEXT_LABELS: Record<QueueContext['type'], string> = {
+  album:    'Playing from Album',
+  artist:   'Playing from Artist',
+  liked:    'Playing from Liked Songs',
+  library:  'Playing from Library',
+  playlist: 'Playing from Playlist',
+  search:   'Playing from Search',
+  manual:   'Playing',
+  unknown:  'Playing',
 };
 
 const SongInfoPanel = () => {
-  const { currentTrack, isPlaying, queueSource } = usePlayerStore();
+  const { currentTrack, isPlaying, queueContext } = usePlayerStore();
   const { albums } = useLibraryStore();
   const navigate = useNavigate();
 
-  // Re-derive next tracks from actual engine queue on every render
-  // (triggers whenever currentTrack or currentIndex changes via zustand)
   const nextTracks = getNextTracks(5);
-
-  // Find the full album object for the current track
   const currentAlbum = currentTrack
     ? albums.find((a) => a.id === currentTrack.albumId) ?? null
     : null;
@@ -66,9 +65,10 @@ const SongInfoPanel = () => {
         </div>
 
         {/* Queue source label */}
-        {queueSource && (
+        {queueContext && (
           <p className="text-[0.63rem] text-swara-dim tracking-wide text-center mb-3 uppercase font-medium">
-            {SOURCE_LABELS[queueSource]}
+            {CONTEXT_LABELS[queueContext.type] ?? 'Playing'}
+            {queueContext.title ? ` · ${queueContext.title}` : ''}
           </p>
         )}
 
@@ -83,7 +83,6 @@ const SongInfoPanel = () => {
         {/* Artists section */}
         <div className="border-t pt-4 mb-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
           <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Artists</p>
-
           {currentTrack.artists.length > 0 && (
             <div className="mb-3">
               <p className="text-[0.68rem] text-swara-dim mb-1.5 font-medium">Singers</p>
@@ -98,7 +97,6 @@ const SongInfoPanel = () => {
               </div>
             </div>
           )}
-
           {currentTrack.composer && (
             <div>
               <p className="text-[0.68rem] text-swara-dim mb-1.5 font-medium">Composer</p>
@@ -115,27 +113,18 @@ const SongInfoPanel = () => {
         {currentAlbum && (
           <div className="border-t pt-4 mb-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
             <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Album</p>
-            <button
-              type="button"
-              onClick={() => navigate(`/album/${currentAlbum.id}`)}
-              className="flex items-center gap-2.5 w-full rounded-xl p-2 hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left group"
-            >
+            <button type="button" onClick={() => navigate(`/album/${currentAlbum.id}`)}
+              className="flex items-center gap-2.5 w-full rounded-xl p-2 hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left group">
               <div className="w-10 h-10 rounded-lg overflow-hidden flex-shrink-0 bg-swara-elevated">
-                <img
-                  src={currentAlbum.coverUrl || PH}
-                  alt={currentAlbum.title}
-                  className="w-full h-full object-cover"
-                  loading="lazy"
-                  onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
-                />
+                <img src={currentAlbum.coverUrl || PH} alt={currentAlbum.title}
+                  className="w-full h-full object-cover" loading="lazy"
+                  onError={(e) => { (e.target as HTMLImageElement).src = PH; }} />
               </div>
               <div className="flex-1 min-w-0">
                 <p className="text-[0.82rem] font-semibold text-swara-text truncate group-hover:text-swara-accent transition-colors">
                   {currentAlbum.title}
                 </p>
-                <p className="text-[0.7rem] text-swara-dim truncate">
-                  {currentAlbum.composer} · {currentAlbum.year}
-                </p>
+                <p className="text-[0.7rem] text-swara-dim truncate">{currentAlbum.composer} · {currentAlbum.year}</p>
               </div>
               <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.75"
                 strokeLinecap="round" strokeLinejoin="round"
@@ -146,10 +135,16 @@ const SongInfoPanel = () => {
           </div>
         )}
 
-        {/* Next queue */}
+        {/* Queue preview — links to /queue page */}
         {nextTracks.length > 0 && (
           <div className="border-t pt-4" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-            <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase mb-2.5">Next Playing</p>
+            <div className="flex items-center justify-between mb-2.5">
+              <p className="text-[0.67rem] font-semibold text-swara-muted tracking-widest uppercase">Next Up</p>
+              <button type="button" onClick={() => navigate('/queue')}
+                className="text-[0.67rem] font-semibold text-swara-accent hover:text-swara-accent-bright transition-colors uppercase tracking-widest">
+                View All
+              </button>
+            </div>
             <div className="flex flex-col gap-0">
               {nextTracks.map((track, i) => (
                 <div key={track.id}

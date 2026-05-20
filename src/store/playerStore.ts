@@ -1,43 +1,39 @@
 /**
  * playerStore — Background-safe audio engine + Zustand React state.
  *
- * ADDED: Queue + playback persistence (Spotify-style session continuity).
+ * QUEUE ARCHITECTURE (v2):
  *
- *   _savePlayback()          — writes engine state to localStorage as IDs only
- *   restorePlaybackState()   — exported; resolves IDs via canonical trackMap,
- *                              restores engine + audio, NEVER autoplays
- *   _throttledSaveTimestamp()— throttled (5s) save during playback
+ *   playQueue({ tracks, context, startIndex? })
+ *     — primary entry point; replaces playTrack/playAlbum
+ *     — called by trackActions, which gets queues from queueBuilders
  *
- * What is persisted:
- *   - current track ID
- *   - full active queue (as track IDs)
- *   - original queue (for shuffle toggle correctness)
- *   - current index
- *   - shuffle + repeat mode
- *   - audio volume
- *   - playback timestamp (throttled to every 5 s)
+ *   Queue mutations (all immutable, all call _savePlayback):
+ *     appendToQueue(track)
+ *     removeFromQueue(index)
+ *     moveQueueTrack(from, to)
+ *     clearQueue()
  *
- * What is NOT persisted: isPlaying — restore is always paused to respect
- * browser autoplay restrictions.
+ *   Persistence (PLAYBACK_KEY):
+ *     - queueIds / originalQueueIds (track IDs only)
+ *     - queueContext (full QueueContext object)
+ *     - currentIndex, shuffle, repeat, volume, timestamp
  *
- * EXISTING: The audio engine lives in module-level _eng / _audio variables.
- * The onended handler reads from _eng only — background-safe.
+ *   NEVER autoplays on restore — browser autoplay policy must be respected.
+ *
+ * BACKWARDS COMPAT:
+ *   playTrack(track, queue?, context?) still works — delegates to playQueue.
+ *   playAlbum(tracks, startIndex?, context?) still works — delegates to playQueue.
+ *   QueueSource type kept as alias for QueueContext['type'] | null.
  */
 import { create } from 'zustand';
-import type { Track, RepeatMode } from '@/types/music';
+import type { Track, RepeatMode, QueueContext } from '@/types/music';
 
-export type QueueSource =
-  | 'album'
-  | 'liked'
-  | 'library'
-  | 'search'
-  | 'artist'
-  | 'queue'
-  | null;
+/** Backwards-compat alias — use QueueContext for new code */
+export type QueueSource = QueueContext['type'] | null;
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
-const PLAYBACK_KEY = 'swara_playback';
+const PLAYBACK_KEY = 'swara_playback_v2';
 
 interface SavedPlaybackState {
   trackId:          string | null;
@@ -48,6 +44,7 @@ interface SavedPlaybackState {
   repeat:           RepeatMode;
   volume:           number;
   timestamp:        number;
+  queueContext:     QueueContext | null;
 }
 
 function _savePlayback(): void {
@@ -61,33 +58,32 @@ function _savePlayback(): void {
     repeat:           _eng.repeat,
     volume:           _audio?.volume ?? 1,
     timestamp:        _audio?.currentTime ?? 0,
+    queueContext:     _eng.queueContext,
   };
   try { localStorage.setItem(PLAYBACK_KEY, JSON.stringify(state)); } catch {}
 }
 
 let _tsSaveTimer = 0;
 function _throttledSaveTimestamp(): void {
-  // Debounce: only actually saves 5 s after the last ontimeupdate
   clearTimeout(_tsSaveTimer);
   _tsSaveTimer = window.setTimeout(_savePlayback, 5000);
 }
 
 /**
  * Restore playback state from localStorage.
- * Called by AppLayout AFTER all album tracks are loaded into the store,
- * guaranteeing that the canonical trackMap has the full pool to resolve IDs.
- *
- * @param trackMap — canonical Map<trackId, Track> from libraryStore
+ * Called by AppLayout AFTER all album tracks are loaded into the store.
+ * Resolves track IDs via canonical trackMap. NEVER autoplays.
  */
 export function restorePlaybackState(trackMap: Map<string, Track>): void {
   try {
-    const raw = localStorage.getItem(PLAYBACK_KEY);
+    // Try v2 key first, then fall back to v1 for migration
+    const raw = localStorage.getItem(PLAYBACK_KEY)
+             ?? localStorage.getItem('swara_playback');
     if (!raw) return;
 
     const saved = JSON.parse(raw) as SavedPlaybackState;
     if (!saved.queueIds?.length) return;
 
-    // Resolve IDs → Track objects via O(1) canonical map
     const activeQueue = saved.queueIds
       .map((id) => trackMap.get(id))
       .filter((t): t is Track => t !== undefined);
@@ -97,7 +93,7 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
       .filter((t): t is Track => t !== undefined);
 
     if (!activeQueue.length) {
-      console.log('[Playback] Restore: saved queue IDs not found in current library — skipped');
+      console.log('[Playback] Restore: saved queue IDs not found in library — skipped');
       return;
     }
 
@@ -110,6 +106,7 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
     _eng.idx           = idx;
     _eng.shuffle       = saved.shuffle  ?? false;
     _eng.repeat        = (saved.repeat  ?? 'off') as RepeatMode;
+    _eng.queueContext  = saved.queueContext ?? null;
 
     const a   = getAudio();
     const vol = Math.max(0, Math.min(1, saved.volume ?? 1));
@@ -119,34 +116,36 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
 
     const savedTs = saved.timestamp ?? 0;
     if (savedTs > 0) {
-      // Seek once metadata is available (duration must be known)
       a.addEventListener('loadedmetadata', () => {
         if (isFinite(a.duration) && savedTs < a.duration) {
           a.currentTime = savedTs;
-          // Sync progress to Zustand after seek
           _sync?.({ progress: savedTs / a.duration, duration: a.duration });
         }
       }, { once: true });
     }
 
-    // NEVER autoplay on restore — browser autoplay policy must be respected
     _sync?.({
-      currentTrack: track,
-      currentIndex: idx,
-      isPlaying:    false,
-      isShuffle:    saved.shuffle ?? false,
-      repeat:       saved.repeat  ?? 'off',
-      progress:     0,
-      duration:     0,
+      currentTrack:  track,
+      currentIndex:  idx,
+      isPlaying:     false,
+      isShuffle:     saved.shuffle ?? false,
+      repeat:        saved.repeat  ?? 'off',
+      progress:      0,
+      duration:      0,
+      queueContext:  saved.queueContext ?? null,
+      queueLength:   activeQueue.length,
     });
 
     console.log(`[Playback] Restored: "${track.title}" (${idx + 1}/${activeQueue.length}) at ${savedTs.toFixed(1)}s — paused`);
+    if (saved.queueContext) {
+      console.log(`[Playback] Queue context: ${saved.queueContext.type} — "${saved.queueContext.title ?? ''}"`);
+    }
   } catch (err) {
     console.error('[Playback] restorePlaybackState error:', err);
   }
 }
 
-// ─── Module-level audio engine (background-safe) ─────────────────────────────
+// ─── Module-level audio engine ────────────────────────────────────────────────
 
 let _audio: HTMLAudioElement | null = null;
 
@@ -165,6 +164,7 @@ const _eng = {
   idx:           0,
   shuffle:       false,
   repeat:        'off' as RepeatMode,
+  queueContext:  null as QueueContext | null,
 };
 
 let _sync: ((partial: Partial<PlayerReactState>) => void) | null = null;
@@ -190,7 +190,7 @@ function _setupListeners(a: HTMLAudioElement) {
         });
       } catch { /* not all browsers support this */ }
     }
-    _throttledSaveTimestamp(); // throttled — saves at most every 5 s
+    _throttledSaveTimestamp();
   };
 
   a.onloadedmetadata = () => _sync?.({ duration: a.duration });
@@ -202,10 +202,9 @@ function _setupListeners(a: HTMLAudioElement) {
   a.onpause = () => {
     _sync?.({ isPlaying: false });
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    _savePlayback(); // save immediately on pause so timestamp is accurate
+    _savePlayback();
   };
 
-  // onended: reads from _eng only — safe when tab is backgrounded
   a.onended = () => {
     const { activeQueue, idx, repeat } = _eng;
     if (repeat === 'one') {
@@ -236,11 +235,18 @@ function _loadAndPlay(track: Track) {
   a.play().catch((e) => {
     if (e?.name !== 'NotAllowedError') console.warn('[Swara] play() failed:', e?.message);
   });
-  _sync?.({ currentTrack: track, currentIndex: _eng.idx, isPlaying: true, progress: 0, duration: 0 });
+  _sync?.({
+    currentTrack: track,
+    currentIndex: _eng.idx,
+    isPlaying:    true,
+    progress:     0,
+    duration:     0,
+    queueLength:  _eng.activeQueue.length,
+  });
   _updateMediaSession(track);
   _pushRecent(track.albumId, track.id);
   _sync?.({ recentSongs: _loadRecents() });
-  _savePlayback(); // persist immediately when track changes
+  _savePlayback();
 }
 
 function _updateMediaSession(track: Track) {
@@ -298,12 +304,12 @@ export function getRecentEntries(): RecentEntry[] { return _loadRecents(); }
 export function getNextTracks(n = 5): Track[] {
   return _eng.activeQueue.slice(_eng.idx + 1, _eng.idx + 1 + n);
 }
-export function getActiveQueue(): Track[] { return _eng.activeQueue; }
-export function getEngineIdx(): number   { return _eng.idx; }
+export function getActiveQueue(): Track[] { return [..._eng.activeQueue]; }
+export function getEngineIdx(): number    { return _eng.idx; }
 
 // ─── Zustand React state ──────────────────────────────────────────────────────
 
-interface PlayerReactState {
+export interface PlayerReactState {
   currentTrack:  Track | null;
   currentIndex:  number;
   isPlaying:     boolean;
@@ -313,28 +319,49 @@ interface PlayerReactState {
   duration:      number;
   isExpanded:    boolean;
   recentSongs:   RecentEntry[];
-  queueSource:   QueueSource;
+  /** Rich queue context — survives persistence */
+  queueContext:  QueueContext | null;
+  /** Total tracks in active queue — for display without exposing full array */
+  queueLength:   number;
 }
 
-interface PlayerState extends PlayerReactState {
-  playTrack:      (track: Track, queue?: Track[], source?: QueueSource) => void;
-  playAlbum:      (tracks: Track[], startIndex?: number, source?: QueueSource) => void;
-  togglePlay:     () => void;
-  next:           () => void;
-  prev:           () => void;
-  seekTo:         (ratio: number) => void;
-  toggleShuffle:  () => void;
-  toggleRepeat:   () => void;
-  setExpanded:    (v: boolean) => void;
-  setQueueSource: (source: QueueSource) => void;
-  refreshRecents: () => void;
+export interface PlayerState extends PlayerReactState {
+  // ── Primary API (new) ────────────────────────────────────────────────────
+  /** Replace entire queue and start playing at startIndex. */
+  playQueue:         (opts: { tracks: Track[]; context: QueueContext; startIndex?: number }) => void;
+  /** Replace queue without starting from a specific track. */
+  replaceQueue:      (tracks: Track[], context: QueueContext) => void;
+
+  // ── Queue mutations ──────────────────────────────────────────────────────
+  appendToQueue:     (track: Track) => void;
+  removeFromQueue:   (index: number) => void;
+  moveQueueTrack:    (fromIndex: number, toIndex: number) => void;
+  clearQueue:        () => void;
+  /** Play a specific index in the current queue */
+  playTrackFromQueue:(index: number) => void;
+
+  // ── Backwards-compat (delegates to playQueue) ────────────────────────────
+  playTrack:         (track: Track, queue?: Track[], context?: QueueContext | QueueSource) => void;
+  playAlbum:         (tracks: Track[], startIndex?: number, context?: QueueContext | QueueSource) => void;
+
+  // ── Transport ────────────────────────────────────────────────────────────
+  togglePlay:        () => void;
+  next:              () => void;
+  prev:              () => void;
+  seekTo:            (ratio: number) => void;
+  toggleShuffle:     () => void;
+  toggleRepeat:      () => void;
+  setExpanded:       (v: boolean) => void;
+  /** Deprecated — prefer passing context to playQueue directly */
+  setQueueSource:    (source: QueueSource) => void;
+  refreshRecents:    () => void;
 }
 
-export const usePlayerStore = create<PlayerState>((set) => {
+export const usePlayerStore = create<PlayerState>((set, get) => {
   _sync = (partial) => set(partial as Partial<PlayerState>);
 
   function _setQueue(tracks: Track[], startIdx: number) {
-    _eng.originalQueue = tracks;
+    _eng.originalQueue = [...tracks];
     _eng.idx           = startIdx;
     if (_eng.shuffle) {
       const rest = tracks.filter((_, i) => i !== startIdx);
@@ -344,6 +371,11 @@ export const usePlayerStore = create<PlayerState>((set) => {
       _eng.activeQueue = [...tracks];
       _eng.idx         = startIdx;
     }
+  }
+
+  /** Normalize a QueueSource string into a minimal QueueContext */
+  function _contextFromSource(src: QueueSource): QueueContext {
+    return { type: src ?? 'unknown' };
   }
 
   return {
@@ -356,22 +388,110 @@ export const usePlayerStore = create<PlayerState>((set) => {
     duration:      0,
     isExpanded:    false,
     recentSongs:   _loadRecents(),
-    queueSource:   null,
+    queueContext:  null,
+    queueLength:   0,
 
-    playTrack: (track, queue, source) => {
-      const q        = queue ?? [track];
-      const startIdx = Math.max(0, q.findIndex((t) => t.id === track.id));
-      _setQueue(q, startIdx);
-      _loadAndPlay(track);
-      set({ isShuffle: _eng.shuffle, queueSource: source ?? null });
-    },
-
-    playAlbum: (tracks, startIndex = 0, source) => {
-      _setQueue(tracks, startIndex);
+    // ── Primary new API ────────────────────────────────────────────────────
+    playQueue: ({ tracks, context, startIndex = 0 }) => {
+      if (!tracks.length) return;
+      const idx = Math.min(Math.max(0, startIndex), tracks.length - 1);
+      _eng.queueContext = context;
+      _setQueue(tracks, idx);
       _loadAndPlay(_eng.activeQueue[_eng.idx]);
-      set({ queueSource: source ?? null });
+      set({ isShuffle: _eng.shuffle, queueContext: context, queueLength: _eng.activeQueue.length });
     },
 
+    replaceQueue: (tracks, context) => {
+      if (!tracks.length) return;
+      _eng.queueContext = context;
+      _setQueue(tracks, 0);
+      set({ queueContext: context, queueLength: _eng.activeQueue.length });
+      _savePlayback();
+    },
+
+    // ── Queue mutations ────────────────────────────────────────────────────
+    appendToQueue: (track) => {
+      _eng.activeQueue   = [..._eng.activeQueue, track];
+      _eng.originalQueue = [..._eng.originalQueue, track];
+      set({ queueLength: _eng.activeQueue.length });
+      _savePlayback();
+    },
+
+    removeFromQueue: (index) => {
+      if (index < 0 || index >= _eng.activeQueue.length) return;
+      const removingCurrent = index === _eng.idx;
+      _eng.activeQueue = _eng.activeQueue.filter((_, i) => i !== index);
+      // Also remove from originalQueue by track ID
+      const removedId = _eng.activeQueue[index]?.id;
+      if (removedId) {
+        _eng.originalQueue = _eng.originalQueue.filter((t) => t.id !== removedId);
+      }
+      if (removingCurrent && _eng.activeQueue.length > 0) {
+        // Stay at same index (next track shifts up), unless we were at end
+        _eng.idx = Math.min(_eng.idx, _eng.activeQueue.length - 1);
+        _loadAndPlay(_eng.activeQueue[_eng.idx]);
+      } else if (index < _eng.idx) {
+        _eng.idx = Math.max(0, _eng.idx - 1);
+      }
+      set({ currentIndex: _eng.idx, queueLength: _eng.activeQueue.length });
+      _savePlayback();
+    },
+
+    moveQueueTrack: (fromIndex, toIndex) => {
+      if (fromIndex === toIndex) return;
+      if (fromIndex < 0 || toIndex < 0) return;
+      if (fromIndex >= _eng.activeQueue.length || toIndex >= _eng.activeQueue.length) return;
+
+      const q = [..._eng.activeQueue];
+      const [moved] = q.splice(fromIndex, 1);
+      q.splice(toIndex, 0, moved);
+      _eng.activeQueue = q;
+
+      // Adjust current index to follow the playing track
+      const currentTrack = get().currentTrack;
+      if (currentTrack) {
+        _eng.idx = q.findIndex((t) => t.id === currentTrack.id);
+        if (_eng.idx < 0) _eng.idx = toIndex;
+      }
+
+      set({ currentIndex: _eng.idx, queueLength: q.length });
+      _savePlayback();
+    },
+
+    clearQueue: () => {
+      getAudio().pause();
+      _eng.activeQueue   = [];
+      _eng.originalQueue = [];
+      _eng.idx           = 0;
+      _eng.queueContext  = null;
+      set({ currentTrack: null, currentIndex: 0, isPlaying: false, progress: 0, duration: 0, queueContext: null, queueLength: 0 });
+      try { localStorage.removeItem(PLAYBACK_KEY); } catch {}
+    },
+
+    playTrackFromQueue: (index) => {
+      if (index < 0 || index >= _eng.activeQueue.length) return;
+      _eng.idx = index;
+      _loadAndPlay(_eng.activeQueue[index]);
+    },
+
+    // ── Backwards-compat wrappers ──────────────────────────────────────────
+    playTrack: (track, queue, contextOrSource) => {
+      const q = queue ?? [track];
+      const startIdx = Math.max(0, q.findIndex((t) => t.id === track.id));
+      const context: QueueContext = (contextOrSource && typeof contextOrSource === 'object')
+        ? contextOrSource as QueueContext
+        : _contextFromSource(contextOrSource as QueueSource ?? null);
+      get().playQueue({ tracks: q, context, startIndex: startIdx });
+    },
+
+    playAlbum: (tracks, startIndex = 0, contextOrSource) => {
+      const context: QueueContext = (contextOrSource && typeof contextOrSource === 'object')
+        ? contextOrSource as QueueContext
+        : _contextFromSource(contextOrSource as QueueSource ?? 'album');
+      get().playQueue({ tracks, context, startIndex });
+    },
+
+    // ── Transport ──────────────────────────────────────────────────────────
     togglePlay: () => {
       const a = getAudio();
       if (a.paused) a.play().catch(() => {});
@@ -386,50 +506,51 @@ export const usePlayerStore = create<PlayerState>((set) => {
       if (a.duration) {
         a.currentTime = ratio * a.duration;
         set({ progress: ratio });
-        _savePlayback(); // save seek position
+        _savePlayback();
       }
     },
 
     toggleShuffle: () => {
       const newShuffle  = !_eng.shuffle;
       _eng.shuffle      = newShuffle;
-      const currentTrack = _eng.activeQueue[_eng.idx];
+      const ct = _eng.activeQueue[_eng.idx];
       if (newShuffle) {
-        const rest = _eng.originalQueue.filter((t) => t.id !== currentTrack?.id);
-        _eng.activeQueue = currentTrack ? [currentTrack, ..._fisher(rest)] : _fisher(_eng.originalQueue);
+        const rest = _eng.originalQueue.filter((t) => t.id !== ct?.id);
+        _eng.activeQueue = ct ? [ct, ..._fisher(rest)] : _fisher(_eng.originalQueue);
         _eng.idx         = 0;
       } else {
         _eng.activeQueue = [..._eng.originalQueue];
-        _eng.idx         = currentTrack
-          ? _eng.originalQueue.findIndex((t) => t.id === currentTrack.id)
-          : 0;
+        _eng.idx         = ct ? _eng.originalQueue.findIndex((t) => t.id === ct.id) : 0;
         if (_eng.idx < 0) _eng.idx = 0;
       }
-      set({ isShuffle: newShuffle, currentIndex: _eng.idx });
-      _savePlayback(); // persist new queue order
+      set({ isShuffle: newShuffle, currentIndex: _eng.idx, queueLength: _eng.activeQueue.length });
+      _savePlayback();
     },
 
     toggleRepeat: () => {
       const next: RepeatMode = _eng.repeat === 'off' ? 'all' : _eng.repeat === 'all' ? 'one' : 'off';
       _eng.repeat = next;
       set({ repeat: next });
-      _savePlayback(); // persist repeat mode
+      _savePlayback();
     },
 
     setExpanded:    (v) => set({ isExpanded: v }),
-    setQueueSource: (source) => set({ queueSource: source }),
-    refreshRecents: ()  => set({ recentSongs: _loadRecents() }),
+    setQueueSource: (source) => {
+      const ctx: QueueContext = { type: source ?? 'unknown' };
+      _eng.queueContext = ctx;
+      set({ queueContext: ctx });
+    },
+    refreshRecents: () => set({ recentSongs: _loadRecents() }),
   };
 });
 
-// ─── Volume (desktop player) ──────────────────────────────────────────────────
+// ─── Volume ───────────────────────────────────────────────────────────────────
 
 export function setAudioVolume(vol: number) {
   const clamped = Math.max(0, Math.min(1, vol));
   const a       = getAudio();
   a.volume      = clamped;
-  _sync?.({ volume: clamped } as any);
-  _savePlayback(); // persist new volume
+  _savePlayback();
 }
 
 export function getAudioVolume(): number {

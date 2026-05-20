@@ -21,9 +21,9 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
     e.stopPropagation();
     const album = albums.find((a) => a.id === albumId);
     if (!album) return;
-    let tracks = album.tracks;
-    if (!tracks.length) tracks = await loadAlbumTracks(albumId);
-    if (tracks.length) trackActions.play(track, tracks, 'album');
+    let albumTracks = album.tracks;
+    if (!albumTracks.length) albumTracks = await loadAlbumTracks(albumId);
+    if (albumTracks.length) trackActions.playFromAlbum(track, { ...album, tracks: albumTracks });
   };
 
   return (

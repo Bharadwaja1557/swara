@@ -131,8 +131,7 @@ const QuickPicks = () => {
     const allTracks = await ensureAllTracks();
     if (!allTracks.length) return;
     const shuffled = pickRandom(allTracks, allTracks.length);
-    // No toast for ambient shuffle — it's a background bulk action
-    trackActions.play(shuffled[0], shuffled, 'library');
+    trackActions.playManual(shuffled, shuffled[0]);
   };
 
   return (

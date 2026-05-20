@@ -103,3 +103,29 @@ export interface RawAlbumFile {
  * Repeat mode
  */
 export type RepeatMode = 'off' | 'all' | 'one';
+
+/**
+ * Where a queue originated — used for "Playing from X" labels
+ * and for future smart queue management.
+ */
+export type QueueType =
+  | 'album'
+  | 'artist'
+  | 'liked'
+  | 'library'
+  | 'playlist'
+  | 'search'
+  | 'manual'
+  | 'unknown';
+
+/**
+ * Rich context metadata attached to every queue.
+ * Persisted alongside the queue so "Playing from X" survives reloads.
+ */
+export interface QueueContext {
+  type:      QueueType;
+  id?:       string;   // album id, artist id, playlist id, etc.
+  title?:    string;   // "Dhurandhar", "Liked Songs", etc.
+  subtitle?: string;   // composer name, track count, etc.
+  artwork?:  string;   // cover URL for queue header display
+}
