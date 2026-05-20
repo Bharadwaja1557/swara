@@ -361,7 +361,7 @@ const FullscreenPlayer = () => {
             </div>
 
             {/* Controls — exact git-play layout */}
-            <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="flex items-center justify-center gap-2 mb-6">
               {/* Shuffle */}
               <button type="button" onClick={toggleShuffle}
                 className="flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-200"
@@ -419,25 +419,6 @@ const FullscreenPlayer = () => {
               </button>
             </div>
 
-            {/* Queue button row — mobile primary entry point to /queue */}
-            <div className="flex justify-center mb-6">
-              <button
-                type="button"
-                onClick={() => { setExpanded(false); setTimeout(() => navigate('/queue'), 320); }}
-                className="flex items-center gap-2 px-5 py-2 rounded-full transition-colors duration-200 active:scale-95"
-                style={{ background: 'rgba(255,255,255,0.06)', color: '#5c5650' }}
-                aria-label="View queue"
-              >
-                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
-                  <line x1="8" y1="18" x2="21" y2="18"/>
-                  <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
-                  <line x1="3" y1="18" x2="3.01" y2="18"/>
-                </svg>
-                <span className="text-[0.75rem] font-medium tracking-wide">Queue</span>
-              </button>
-            </div>
-
             {/* Artists section */}
             {(currentTrack.artists.length > 0 || currentTrack.composer) && (
               <div className="border-t pt-5 mb-5" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
@@ -471,12 +452,24 @@ const FullscreenPlayer = () => {
               </div>
             )}
 
-            {/* Next Playing */}
+            {/* Next Up — mirrors SongInfoPanel desktop pattern exactly */}
             {nextTracks.length > 0 && (
               <div className="border-t pt-5" style={{ borderColor: 'rgba(255,255,255,0.07)' }}>
-                <p className="text-[0.7rem] font-semibold tracking-widest uppercase mb-3" style={{ color: '#5c5650' }}>
-                  Next Playing
-                </p>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-[0.7rem] font-semibold tracking-widest uppercase" style={{ color: '#5c5650' }}>
+                    Next Up
+                  </p>
+                  {/* View all — same affordance as desktop SongInfoPanel */}
+                  <button
+                    type="button"
+                    onClick={() => { setExpanded(false); setTimeout(() => navigate('/queue'), 320); }}
+                    className="text-[0.7rem] font-semibold uppercase tracking-widest transition-colors"
+                    style={{ color: '#c8a96e' }}
+                    aria-label="View full queue"
+                  >
+                    View all
+                  </button>
+                </div>
                 <div className="flex flex-col gap-0">
                   {nextTracks.map((track, i) => (
                     <div key={track.id} className="flex items-center gap-3 py-2.5 px-1 rounded-xl"
