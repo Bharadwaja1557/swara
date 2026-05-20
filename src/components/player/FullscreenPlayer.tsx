@@ -2,8 +2,9 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
-import { useLibraryUserStore } from '@/store/libraryUserStore';
+import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { useLibraryStore } from '@/store/libraryStore';
+import { trackActions } from '@/lib/trackActions';
 import { formatDuration } from '@/utils/greeting';
 import { slugify } from '@/utils/library';
 import BottomSheet from '@/components/ui/BottomSheet';
@@ -19,8 +20,7 @@ interface TrackMenuProps {
 
 const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
   const { currentTrack } = usePlayerStore();
-  const { isLiked, toggleLike } = useLikedStore();
-  const { hasTrack, addTrack, removeTrack } = useLibraryUserStore();
+  const liked  = useLikedStore((s) => currentTrack ? s.isLiked(currentTrack.id) : false);
   const { albums } = useLibraryStore();
   const navigate = useNavigate();
 
@@ -28,9 +28,10 @@ const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
 
   if (!currentTrack) return null;
 
-  const liked      = isLiked(currentTrack.id);
-  const inLib      = hasTrack(currentTrack.id);
-  const albumFull  = albums.find((a) => a.id === currentTrack.albumId);
+  const albumFull = albums.find((a) => a.id === currentTrack.albumId);
+  const inLib     = useUserLibraryStore.getState().hasTrack(
+    currentTrack.albumId, currentTrack.id
+  );
 
   const hasMultipleArtists =
     currentTrack.artists.length > 1 ||
@@ -88,7 +89,7 @@ const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
             }
             label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
             accent={liked}
-            onClick={() => { toggleLike(currentTrack); }}
+            onClick={() => { trackActions.toggleLike(currentTrack); }}
           />
 
           <MenuItem
@@ -106,8 +107,7 @@ const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
             label={inLib ? 'Remove from Library' : 'Add to Library'}
             onClick={() => {
               if (!albumFull) return;
-              if (inLib) removeTrack(currentTrack);
-              else addTrack(currentTrack, albumFull);
+              trackActions.toggleTrackLibrary(currentTrack, albumFull);
             }}
           />
 
@@ -162,7 +162,7 @@ const FullscreenPlayer = () => {
     togglePlay, next, prev, toggleShuffle, toggleRepeat,
     seekTo, setExpanded,
   } = usePlayerStore();
-  const { isLiked, toggleLike } = useLikedStore();
+  const { isLiked } = useLikedStore();
   const navigate = useNavigate();
 
   const [menuOpen,   setMenuOpen]   = useState(false);
@@ -327,7 +327,7 @@ const FullscreenPlayer = () => {
               </h2>
               <button
                 type="button"
-                onClick={() => toggleLike(currentTrack)}
+                onClick={() => trackActions.toggleLike(currentTrack)}
                 className={['w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 transition-colors duration-200',
                   liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
                 aria-label={liked ? 'Unlike' : 'Like'}

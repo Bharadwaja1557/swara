@@ -5,9 +5,9 @@
  *  3. Most Played   — Coming Soon
  */
 import { useLibraryStore } from '@/store/libraryStore';
-import { usePlayerStore }  from '@/store/playerStore';
 import { useLikedStore }   from '@/store/likedStore';
 import { useNavigate }     from 'react-router-dom';
+import { trackActions }    from '@/lib/trackActions';
 import { pickRandom }      from '@/utils/greeting';
 import type { Track }      from '@/types/music';
 
@@ -117,7 +117,6 @@ const MostPlayedIcon = () => (
 
 const QuickPicks = () => {
   const { albums, tracks, loadAlbumTracks } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
   const navigate       = useNavigate();
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
   const likedTracks    = getLikedTracks();
@@ -132,7 +131,8 @@ const QuickPicks = () => {
     const allTracks = await ensureAllTracks();
     if (!allTracks.length) return;
     const shuffled = pickRandom(allTracks, allTracks.length);
-    playTrack(shuffled[0], shuffled);
+    // No toast for ambient shuffle — it's a background bulk action
+    trackActions.play(shuffled[0], shuffled, 'library');
   };
 
   return (

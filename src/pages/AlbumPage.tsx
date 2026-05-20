@@ -4,6 +4,7 @@ import { useLibraryStore }     from '@/store/libraryStore';
 import { usePlayerStore }      from '@/store/playerStore';
 import { useLikedStore }       from '@/store/likedStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
+import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
 import BottomSheet             from '@/components/ui/BottomSheet';
 import ArtistPickerSheet       from '@/components/ui/ArtistPickerSheet';
@@ -11,15 +12,13 @@ import type { Track, Album }   from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
-// ─── 3-dots track menu ────────────────────────────────────────────────────────
 const TrackMenu = ({ track, album, isOpen, onClose }: {
   track: Track; album: Album; isOpen: boolean; onClose: () => void;
 }) => {
   const navigate = useNavigate();
-  const { isLiked, toggleLike } = useLikedStore();
-  const { hasTrack, addTrack, removeTrack } = useUserLibraryStore();
-  const liked    = isLiked(track.id);
-  const inLib    = hasTrack(album.id, track.id);
+  // Fine-grained subscriptions — avoid full-store re-renders
+  const liked = useLikedStore((s) => s.isLiked(track.id));
+  const inLib = useUserLibraryStore((s) => s.hasTrack(album.id, track.id));
 
   const [artistPickerOpen, setArtistPickerOpen] = useState(false);
 
@@ -43,6 +42,7 @@ const TrackMenu = ({ track, album, isOpen, onClose }: {
       {label}
     </button>
   );
+
   return (
     <>
       <BottomSheet isOpen={isOpen} onClose={onClose}>
@@ -51,18 +51,24 @@ const TrackMenu = ({ track, album, isOpen, onClose }: {
           <p className="text-[0.78rem] text-swara-muted mt-0.5 truncate">{album.title}</p>
         </div>
         <div className="py-1">
-          <MI icon={<svg viewBox="0 0 24 24" width="18" height="18" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>}
-            label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'} accent={liked}
-            onClick={() => { toggleLike(track); }} />
-          <MI icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>{inLib ? <line x1="9" y1="11" x2="15" y2="11" strokeWidth="2.5"/> : <><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></>}</svg>}
-            label={inLib ? 'In My Library' : 'Add to My Library'} accent={inLib}
+          <MI
+            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>}
+            label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
+            accent={liked}
+            onClick={() => { trackActions.toggleLike(track); }}
+          />
+          <MI
+            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>{inLib ? <line x1="9" y1="11" x2="15" y2="11" strokeWidth="2.5"/> : <><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></>}</svg>}
+            label={inLib ? 'In My Library' : 'Add to My Library'}
+            accent={inLib}
             onClick={() => {
-              if (inLib) removeTrack(album.id, track.id);
-              else addTrack(album.id, track.id, (track as any)._queueIds ?? [track.id]);
+              trackActions.toggleTrackLibrary(track, album);
               onClose();
-            }} />
+            }}
+          />
           <div className="mx-5 my-1 h-px bg-swara-border" />
-          <MI icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>}
+          <MI
+            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>}
             label="View Artists"
             onClick={handleViewArtists}
           />
@@ -72,10 +78,7 @@ const TrackMenu = ({ track, album, isOpen, onClose }: {
       <ArtistPickerSheet
         isOpen={artistPickerOpen}
         onClose={() => setArtistPickerOpen(false)}
-        onNavigate={() => {
-          setArtistPickerOpen(false);
-          onClose();
-        }}
+        onNavigate={() => { setArtistPickerOpen(false); onClose(); }}
         singers={track.artists}
         composer={track.composer || undefined}
       />
@@ -111,11 +114,10 @@ const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; 
   // isPlayingStore changes only on play/pause.
   // playTrack is a stable action reference — never changes.
   // Result: zero re-renders during normal playback. Flicker eliminated.
-  const playTrack       = usePlayerStore((s) => s.playTrack);
   const currentTrackId  = usePlayerStore((s) => s.currentTrack?.id);
   const isPlayingStore  = usePlayerStore((s) => s.isPlaying);
 
-  const { isLiked, toggleLike } = useLikedStore();
+  const liked = useLikedStore((s) => s.isLiked(track.id));
 
   const [menuOpen,    setMenuOpen]    = useState(false);
   // Lazy mount: BottomSheet (fixed inset-0 z-[90]) is NOT in the DOM until
@@ -125,8 +127,6 @@ const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; 
 
   const isActive   = currentTrackId === track.id;
   const isPlaying  = isPlayingStore && isActive;
-  const liked      = isLiked(track.id);
-
 
   const handleOpenMenu = useCallback(() => {
     setMenuMounted(true); // mount once, keep mounted for close animation
@@ -134,12 +134,12 @@ const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; 
   }, []);
 
   const handlePlay = useCallback(() => {
-    playTrack(track, queue);
-  }, [playTrack, track, queue]);
+    trackActions.play(track, queue, 'album');
+  }, [track, queue]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') playTrack(track, queue);
-  }, [playTrack, track, queue]);
+    if (e.key === 'Enter') trackActions.play(track, queue, 'album');
+  }, [track, queue]);
 
   return (
     <>
@@ -174,7 +174,7 @@ const TrackRow = memo(({ track, queue, album }: { track: Track; queue: Track[]; 
         <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
-            onClick={() => toggleLike(track)}
+            onClick={() => trackActions.toggleLike(track)}
             className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
             aria-label={liked ? 'Unlike' : 'Like'}
           >
@@ -219,9 +219,6 @@ const AlbumPage = () => {
   // Fine-grained selectors: AlbumPage only needs these two action refs.
   // Without selectors the page re-renders on every progress tick (~4×/sec),
   // bypassing memo on all 25 TrackRow children unnecessarily.
-  const playAlbum = usePlayerStore((s) => s.playAlbum);
-  const playTrack = usePlayerStore((s) => s.playTrack);
-
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [coverErr,   setCoverErr]   = useState(false);
@@ -259,22 +256,18 @@ const AlbumPage = () => {
     if (!tracks.length) return;
     if (isShuffle) {
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
-      playTrack(shuffled[0], shuffled);
+      trackActions.play(shuffled[0], shuffled, 'album');
     } else {
-      playAlbum(tracks, 0);
+      trackActions.playAlbum(tracks, 0, 'album');
     }
-  }, [tracks, isShuffle, playTrack, playAlbum]);
+  }, [tracks, isShuffle]);
 
-  const { addAlbum, removeAlbum, hasAlbum } = useUserLibraryStore();
+  const { hasAlbum } = useUserLibraryStore();
   const inLibrary = hasAlbum(album.id);
 
   const handleToggleLibrary = useCallback(() => {
-    if (inLibrary) {
-      removeAlbum(album.id);
-    } else {
-      addAlbum(album.id, tracks.map((t) => t.id));
-    }
-  }, [inLibrary, album.id, tracks, addAlbum, removeAlbum]);
+    trackActions.toggleAlbumLibrary(album, tracks);
+  }, [album, tracks]);
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">

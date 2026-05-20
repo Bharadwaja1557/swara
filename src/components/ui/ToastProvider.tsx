@@ -43,7 +43,7 @@ const ToastPill = ({ message, icon }: { message: string; icon?: ToastIcon }) => 
       background: '#23232e',
       border: '1px solid rgba(255,255,255,0.09)',
       boxShadow: '0 4px 24px rgba(0,0,0,0.55)',
-      animation: 'toastIn 0.28s cubic-bezier(0.16,1,0.3,1) both',
+      animation: 'toastIn 0.22s ease-out both',
       maxWidth: '88vw',
       width: 'max-content',
     }}
@@ -71,15 +71,17 @@ export const ToastProvider = () => {
       {/* Keyframe injection — one global style tag, idempotent */}
       <style>{`
         @keyframes toastIn {
-          from { opacity: 0; transform: translateY(12px) scale(0.96); }
-          to   { opacity: 1; transform: translateY(0)    scale(1);    }
+          from { opacity: 0; transform: translateY(8px); }
+          to   { opacity: 1; transform: translateY(0);   }
         }
       `}</style>
 
-      {/* Fixed stack: sits above mini-player (z-[55]) but below fullscreen (z-[60]) */}
+      {/* Fixed stack — z-[100] sits above bottom sheets (z-[90]), fullscreen player
+          (z-[60]), and mini player (z-[55]). pointer-events-none so it never blocks
+          touches on content below. */}
       <div
-        className="fixed left-0 right-0 z-[56] flex flex-col items-center gap-2 pointer-events-none"
-        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 80px)' }}
+        className="fixed left-0 right-0 z-[100] flex flex-col items-center gap-2 pointer-events-none"
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 76px)' }}
         aria-label="Notifications"
       >
         {toasts.map((t) => (

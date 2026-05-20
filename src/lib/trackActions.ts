@@ -66,4 +66,23 @@ export const trackActions = {
       toast('Added to Library', 'library');
     }
   },
+
+  /**
+   * Add or remove a single track from the user's library. Shows a toast.
+   * Requires the parent album to determine correct track ordering.
+   */
+  toggleTrackLibrary: (track: Track, album: Album): void => {
+    const store  = useUserLibraryStore.getState();
+    const inLib  = store.hasTrack(album.id, track.id);
+    const allIds = album.tracks.length > 0
+      ? album.tracks.map((t) => t.id)
+      : [track.id];
+    if (inLib) {
+      store.removeTrack(album.id, track.id);
+      toast('Removed from Library', 'library');
+    } else {
+      store.addTrack(album.id, track.id, allIds);
+      toast('Added to Library', 'library');
+    }
+  },
 } as const;

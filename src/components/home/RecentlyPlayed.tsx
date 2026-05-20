@@ -6,6 +6,7 @@ import { useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
+import { trackActions } from '@/lib/trackActions';
 import type { Track } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
@@ -15,7 +16,6 @@ interface RecentCardProps { track: Track; albumId: string; }
 const RecentCard = ({ track, albumId }: RecentCardProps) => {
   const navigate  = useNavigate();
   const { albums, loadAlbumTracks } = useLibraryStore();
-  const { playTrack } = usePlayerStore();
 
   const handlePlay = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -23,7 +23,7 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
     if (!album) return;
     let tracks = album.tracks;
     if (!tracks.length) tracks = await loadAlbumTracks(albumId);
-    if (tracks.length) playTrack(track, tracks);
+    if (tracks.length) trackActions.play(track, tracks, 'album');
   };
 
   return (

@@ -11,6 +11,7 @@ import { memo, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
+import { trackActions } from '@/lib/trackActions';
 import type { Track } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/></svg>';
@@ -49,21 +50,19 @@ const PlayingBars = () => (
 
 // ── Track row ─────────────────────────────────────────────────────────────────
 const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) => {
-  const playTrack      = usePlayerStore((s) => s.playTrack);
   const currentTrackId = usePlayerStore((s) => s.currentTrack?.id);
   const isPlayingStore = usePlayerStore((s) => s.isPlaying);
-  const { isLiked, toggleLike } = useLikedStore();
+  const liked          = useLikedStore((s) => s.isLiked(track.id));
 
   const [menuMounted, setMenuMounted] = useState(false);
   const [menuOpen,    setMenuOpen]    = useState(false);
 
   const isActive  = currentTrackId === track.id;
   const isPlaying = isPlayingStore && isActive;
-  const liked     = isLiked(track.id);
 
-  const handlePlay      = useCallback(() => playTrack(track, queue), [playTrack, track, queue]);
-  const handleKeyDown   = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') playTrack(track, queue); }, [playTrack, track, queue]);
-  const handleOpenMenu  = useCallback(() => { setMenuMounted(true); setMenuOpen(true); }, []);
+  const handlePlay     = useCallback(() => trackActions.play(track, queue, 'liked'), [track, queue]);
+  const handleKeyDown  = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') trackActions.play(track, queue, 'liked'); }, [track, queue]);
+  const handleOpenMenu = useCallback(() => { setMenuMounted(true); setMenuOpen(true); }, []);
 
   return (
     <li
@@ -95,7 +94,7 @@ const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) 
 
       {/* Heart + menu */}
       <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <button type="button" onClick={() => toggleLike(track)}
+        <button type="button" onClick={() => trackActions.toggleLike(track)}
           className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
           aria-label={liked ? 'Unlike' : 'Like'}>
           <svg viewBox="0 0 24 24" width="17" height="17"
@@ -139,7 +138,7 @@ const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) 
                 <p className="text-[0.72rem] text-swara-muted truncate">{track.artist}</p>
               </div>
             </div>
-            <button type="button" onClick={() => { toggleLike(track); setMenuOpen(false); }}
+            <button type="button" onClick={() => { trackActions.toggleLike(track); setMenuOpen(false); }}
               className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-swara-card text-left transition-colors">
               <svg viewBox="0 0 24 24" width="18" height="18" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={liked ? 'text-swara-accent' : 'text-swara-muted'} aria-hidden="true">
                 <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
@@ -159,9 +158,8 @@ const LikedTrackRow = memo(({ track, queue }: { track: Track; queue: Track[] }) 
 
 // ── LikedSongsPage ────────────────────────────────────────────────────────────
 const LikedSongsPage = () => {
-  const navigate      = useNavigate();
+  const navigate       = useNavigate();
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
-  const playTrack      = usePlayerStore((s) => s.playTrack);
   const [isShuffle, setIsShuffle] = useState(false);
 
   const tracks = getLikedTracks();
@@ -171,8 +169,8 @@ const LikedSongsPage = () => {
     const queue = isShuffle
       ? [...tracks].sort(() => Math.random() - 0.5)
       : tracks;
-    playTrack(queue[0], queue);
-  }, [tracks, isShuffle, playTrack]);
+    trackActions.play(queue[0], queue, 'liked');
+  }, [tracks, isShuffle]);
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
