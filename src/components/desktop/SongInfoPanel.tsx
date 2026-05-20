@@ -6,11 +6,21 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
 import { slugify } from '@/utils/library';
+import type { QueueSource } from '@/store/playerStore';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
+const SOURCE_LABELS: Record<NonNullable<QueueSource>, string> = {
+  album:   'Playing from Album',
+  liked:   'Playing from Liked Songs',
+  library: 'Playing from Library',
+  search:  'Playing from Search',
+  artist:  'Playing from Artist',
+  queue:   'Playing from Queue',
+};
+
 const SongInfoPanel = () => {
-  const { currentTrack, isPlaying } = usePlayerStore();
+  const { currentTrack, isPlaying, queueSource } = usePlayerStore();
   const { albums } = useLibraryStore();
   const navigate = useNavigate();
 
@@ -44,7 +54,7 @@ const SongInfoPanel = () => {
     >
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pt-5 pb-4">
         {/* Cover */}
-        <div className="w-full aspect-square rounded-2xl overflow-hidden bg-swara-card mb-4"
+        <div className="w-full aspect-square rounded-2xl overflow-hidden bg-swara-card mb-3"
           style={{ boxShadow: isPlaying ? '0 4px 32px rgba(0,0,0,0.7), 0 0 40px rgba(200,169,110,0.07)' : '0 4px 24px rgba(0,0,0,0.6)', transition: 'box-shadow 0.6s ease' }}>
           <img
             src={currentTrack.coverUrl || PH}
@@ -54,6 +64,13 @@ const SongInfoPanel = () => {
             onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
           />
         </div>
+
+        {/* Queue source label */}
+        {queueSource && (
+          <p className="text-[0.63rem] text-swara-dim tracking-wide text-center mb-3 uppercase font-medium">
+            {SOURCE_LABELS[queueSource]}
+          </p>
+        )}
 
         {/* Track info */}
         <div className="mb-4">

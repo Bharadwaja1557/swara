@@ -158,7 +158,7 @@ const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
 const FullscreenPlayer = () => {
   const {
     currentTrack, isPlaying, isShuffle, repeat,
-    progress, duration, isExpanded,
+    progress, duration, isExpanded, queueSource,
     togglePlay, next, prev, toggleShuffle, toggleRepeat,
     seekTo, setExpanded,
   } = usePlayerStore();
@@ -273,10 +273,16 @@ const FullscreenPlayer = () => {
           </button>
 
           <div className="flex-1 text-center px-2 min-w-0">
-            <p className="text-[0.72rem] text-swara-muted font-medium tracking-[0.1em] uppercase"
-              style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 'clamp(0.6rem, 2vw, 0.78rem)' }}>
-              {currentTrack.album}
-            </p>
+            {queueSource ? (
+              <p className="text-[0.65rem] text-swara-dim font-medium tracking-[0.12em] uppercase truncate">
+                {({ album: 'Playing from Album', liked: 'Liked Songs', library: 'Library', search: 'Search', artist: 'Artist', queue: 'Queue' } as const)[queueSource]}
+              </p>
+            ) : (
+              <p className="text-[0.72rem] text-swara-muted font-medium tracking-[0.1em] uppercase truncate"
+                style={{ fontSize: 'clamp(0.6rem, 2vw, 0.78rem)' }}>
+                {currentTrack.album}
+              </p>
+            )}
           </div>
 
           <button type="button" onClick={() => setMenuOpen(true)}

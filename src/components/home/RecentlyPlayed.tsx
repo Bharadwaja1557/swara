@@ -2,7 +2,7 @@
  * RecentlyPlayed — shows recently played songs (deduped by album).
  * Exactly 3 fully visible cards on screen.
  */
-import { useRef, useEffect } from 'react';
+import { useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -67,13 +67,30 @@ const RecentlyPlayed = () => {
   const { tracks } = useLibraryStore();
   const recentSongs = usePlayerStore((s) => s.recentSongs);
 
-  // Fix: browsers (especially Safari/Chrome) can persist scrollLeft of overflow
-  // containers across navigations. Explicitly reset to 0 after every mount so
-  // the first card is always visible when returning to the home page.
+  // ── Scroll-to-left fix ───────────────────────────────────────────────────────
+  // Root cause: browsers (Chrome, Safari) persist scrollLeft of overflow
+  // containers as part of native scroll restoration. This fires AFTER paint,
+  // so a plain useEffect(scrollLeft=0) loses the race.
+  //
+  // Fix: useLayoutEffect fires synchronously after DOM mutations, before paint.
+  // A nested requestAnimationFrame then catches any second-pass layout the
+  // browser performs once images begin loading (which can nudge scrollLeft again).
+  // The double-rAF is the minimal reliable guard against both timing windows.
   const scrollRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
-  }, []);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Immediate reset (catches most cases)
+    el.scrollLeft = 0;
+    // rAF: catches post-layout scroll restoration triggered by image dimension calc
+    const raf1 = requestAnimationFrame(() => {
+      el.scrollLeft = 0;
+      // Second frame: catches any deferred browser scroll-restoration pass
+      const raf2 = requestAnimationFrame(() => { el.scrollLeft = 0; });
+      return () => cancelAnimationFrame(raf2);
+    });
+    return () => cancelAnimationFrame(raf1);
+  }, []); // run once on mount — recentSongs is seeded synchronously from localStorage
 
   // Resolve entries → track objects, deduped by albumId (keep most recent)
   const seen = new Set<string>();

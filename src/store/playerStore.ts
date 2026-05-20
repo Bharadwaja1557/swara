@@ -26,6 +26,15 @@
 import { create } from 'zustand';
 import type { Track, RepeatMode } from '@/types/music';
 
+export type QueueSource =
+  | 'album'
+  | 'liked'
+  | 'library'
+  | 'search'
+  | 'artist'
+  | 'queue'
+  | null;
+
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
 const PLAYBACK_KEY = 'swara_playback';
@@ -304,11 +313,12 @@ interface PlayerReactState {
   duration:      number;
   isExpanded:    boolean;
   recentSongs:   RecentEntry[];
+  queueSource:   QueueSource;
 }
 
 interface PlayerState extends PlayerReactState {
-  playTrack:      (track: Track, queue?: Track[]) => void;
-  playAlbum:      (tracks: Track[], startIndex?: number) => void;
+  playTrack:      (track: Track, queue?: Track[], source?: QueueSource) => void;
+  playAlbum:      (tracks: Track[], startIndex?: number, source?: QueueSource) => void;
   togglePlay:     () => void;
   next:           () => void;
   prev:           () => void;
@@ -316,6 +326,7 @@ interface PlayerState extends PlayerReactState {
   toggleShuffle:  () => void;
   toggleRepeat:   () => void;
   setExpanded:    (v: boolean) => void;
+  setQueueSource: (source: QueueSource) => void;
   refreshRecents: () => void;
 }
 
@@ -345,18 +356,20 @@ export const usePlayerStore = create<PlayerState>((set) => {
     duration:      0,
     isExpanded:    false,
     recentSongs:   _loadRecents(),
+    queueSource:   null,
 
-    playTrack: (track, queue) => {
+    playTrack: (track, queue, source) => {
       const q        = queue ?? [track];
       const startIdx = Math.max(0, q.findIndex((t) => t.id === track.id));
       _setQueue(q, startIdx);
       _loadAndPlay(track);
-      set({ isShuffle: _eng.shuffle });
+      set({ isShuffle: _eng.shuffle, queueSource: source ?? null });
     },
 
-    playAlbum: (tracks, startIndex = 0) => {
+    playAlbum: (tracks, startIndex = 0, source) => {
       _setQueue(tracks, startIndex);
       _loadAndPlay(_eng.activeQueue[_eng.idx]);
+      set({ queueSource: source ?? null });
     },
 
     togglePlay: () => {
@@ -404,6 +417,7 @@ export const usePlayerStore = create<PlayerState>((set) => {
     },
 
     setExpanded:    (v) => set({ isExpanded: v }),
+    setQueueSource: (source) => set({ queueSource: source }),
     refreshRecents: ()  => set({ recentSongs: _loadRecents() }),
   };
 });

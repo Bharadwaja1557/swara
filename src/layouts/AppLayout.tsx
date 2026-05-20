@@ -33,6 +33,7 @@ import FullscreenPlayer      from '@/components/player/FullscreenPlayer';
 import DesktopLayout         from '@/layouts/DesktopLayout';
 import LoginModal            from '@/components/auth/LoginModal';
 import { ScrollRestorer }    from '@/components/ScrollRestorer';
+import { ToastProvider }     from '@/components/ui/ToastProvider';
 
 // ── Mobile shell ──────────────────────────────────────────────────────────────
 const MobileLayout = () => (
@@ -146,6 +147,8 @@ const AppLayout = () => {
     <>
       {/* Scrolls #main-content to top on every route change */}
       <ScrollRestorer />
+      {/* Global toast notifications — rendered above all content layers */}
+      <ToastProvider />
       {isDesktop ? <DesktopLayout /> : <MobileLayout />}
     </>
   );
