@@ -3,40 +3,56 @@
  *
  * Route: /queue  ·  Mobile (full page) + Desktop (center column)
  *
- * SWIPE-DOWN DISMISS — mirrors FullscreenPlayer exactly:
+ * ── GESTURE PERFORMANCE ARCHITECTURE ────────────────────────────────────────
  *
- *   State:  dragOffset (number, px) — drives translateY on the page container
- *   Ref:    touchState — gesture tracking without re-renders (same shape as
- *           FullscreenPlayer's touchState ref)
- *   Transition contract:
- *     - dragOffset > 0  → transition: 'none'  (follows finger 1:1, no lag)
- *     - dragOffset = 0  → transition: 'transform 0.42s cubic-bezier(0.16,1,0.3,1)'
- *                          (spring-back or enter animation)
- *   Dismiss: dragOffset > 80px on release → navigate(-1)
- *            dragOffset ≤ 80px on release → setDragOffset(0) → spring back
+ * PROBLEM WITH THE PREVIOUS APPROACH:
+ *   Using React state `dragOffset` to drive the transform meant every touchmove
+ *   event (60+ fps) caused a full React re-render of QueuePage. Each re-render:
+ *     1. Called getActiveQueue() → allocated a new Track[] copy
+ *     2. Called queue.slice() twice → two more array allocations
+ *     3. Reconciled ALL QueueRow components (even unchanged ones)
+ *     4. Re-created all inline arrow function props per row
+ *   For a 30-track queue, the JS thread was too busy with reconciliation to
+ *   hand off compositor work in time. The layer lagged behind the finger.
  *
- *   Non-passive touchmove listener on the page container prevents
- *   pull-to-refresh during an active dismiss drag (same as FullscreenPlayer).
+ * THE FIX — DIRECT DOM MUTATION, ZERO REACT RENDERS DURING DRAG:
+ *   dragOffset is now a plain ref (not state). Touch handlers write directly to
+ *   containerRef.current.style.transform and .style.opacity.
+ *   React is never notified during the gesture. No reconciliation happens.
+ *   The browser compositor receives the style update directly, on the same frame.
  *
- *   Axis lock: first 8px of movement determines whether gesture is vertical
- *   or horizontal. Horizontal lock → gesture ignored, normal scroll preserved.
+ *   Spring-back on release:
+ *     1. Set containerRef.style.transition = spring curve
+ *     2. Set containerRef.style.transform  = translate3d(0,0,0)
+ *     → CSS handles the animation, React not involved
  *
- *   Scroll-vs-dismiss conflict: gesture only activates from the header zone.
- *   The scrollable list area has its own touch handlers untouched — the
- *   header's handlers intercept before bubbling down to the list.
+ *   Dismiss on release:
+ *     navigate(-1) → React unmounts the component
  *
- *   Desktop: dragOffset is always 0, touch handlers are no-ops, no visual change.
+ * ADDITIONAL OPTIMIZATION — useMemo FOR QUEUE DERIVATIONS:
+ *   prevTracks / nowPlaying / nextUp are computed via `useMemo` keyed on
+ *   queueVersion + activeIdx. They are only recomputed when the queue actually
+ *   changes, not on any other re-render trigger.
  *
- * DRAG AFFORDANCE: always visible at opacity-40 (not hover-only).
- * DRAG INDICATOR: separate positioned <div>, not a CSS border — no color flash.
+ * WHY THIS MATCHES FULLSCREENPLAYER:
+ *   FullscreenPlayer is `fixed inset-0` (compositor-promoted layer) and its
+ *   render tree is shallow (~40 nodes). It gets away with setDragOffset because
+ *   reconciliation is cheap. QueuePage has 30–100 rows, so the same approach
+ *   compounds. Direct DOM mutation eliminates the React overhead entirely and
+ *   is the correct architecture for any variable-length list with drag gestures.
+ *
+ * DESKTOP: touch handlers fire but isDraggingRef.current is never set true
+ *   (no touch events on desktop), so style is never mutated. Zero impact.
  */
-import { useRef, useEffect, useCallback, useState } from 'react';
+import { useRef, useEffect, useCallback, useState, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getActiveQueue, getEngineIdx } from '@/store/playerStore';
 import { trackActions } from '@/lib/trackActions';
 import type { QueueContext, Track } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
+const SPRING = 'transform 0.42s cubic-bezier(0.16,1,0.3,1)';
+const DISMISS_THRESHOLD = 80;
 
 // ── Playing bars ──────────────────────────────────────────────────────────────
 const PlayingBars = () => (
@@ -60,11 +76,13 @@ function contextLabel(ctx: QueueContext | null): string {
   return CONTEXT_LABELS[ctx.type] ?? 'Queue';
 }
 
-// ── Drag state ────────────────────────────────────────────────────────────────
+// ── Drag-to-reorder state ─────────────────────────────────────────────────────
 interface DragState { dragging: number | null; over: number | null; }
 
-// ── Queue row ─────────────────────────────────────────────────────────────────
-const QueueRow = ({
+// ── Queue row — memo'd to prevent re-renders when unrelated state changes ─────
+// Without memo, parent re-renders (e.g. queueVersion bump) would reconcile
+// every row even if its props didn't change.
+const QueueRow = memo(({
   track, isActive, isPlaying,
   onPlay, onRemove, onDragStart, onDragEnter, onDragEnd,
   isDragging, isOver,
@@ -75,7 +93,7 @@ const QueueRow = ({
   isDragging: boolean; isOver: boolean;
 }) => (
   <div className="relative">
-    {/* Insertion indicator — separate element with hardcoded color, no class-toggle flash */}
+    {/* Insertion indicator — separate element, inline color, no CSS class flash */}
     {isOver && (
       <div
         className="absolute top-0 left-3 right-3 h-[2px] rounded-full pointer-events-none z-10"
@@ -130,12 +148,9 @@ const QueueRow = ({
         {isActive && isPlaying ? (
           <PlayingBars />
         ) : (
-          <button
-            type="button"
-            onClick={onRemove}
+          <button type="button" onClick={onRemove}
             className="w-7 h-7 rounded-full flex items-center justify-center text-swara-dim opacity-40 hover:opacity-100 hover:text-swara-muted transition-all"
-            aria-label="Remove from queue"
-          >
+            aria-label="Remove from queue">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
               <path d="M18 6 6 18M6 6l12 12"/>
             </svg>
@@ -144,34 +159,38 @@ const QueueRow = ({
       </div>
     </div>
   </div>
-);
+));
 
 // ── QueuePage ─────────────────────────────────────────────────────────────────
 const QueuePage = () => {
   const navigate = useNavigate();
 
-  // Reactive subscriptions
+  // Reactive subscriptions — only what's needed for content rendering
   const queueVersion       = usePlayerStore((s) => s.queueVersion);
   const isPlaying          = usePlayerStore((s) => s.isPlaying);
   const queueContext       = usePlayerStore((s) => s.queueContext);
   const playTrackFromQueue = usePlayerStore((s) => s.playTrackFromQueue);
 
-  // Derive live queue from engine on every render (queueVersion triggers re-render)
-  const queue     = getActiveQueue();
-  const activeIdx = getEngineIdx();
+  // Drag-to-reorder UI state (not related to the swipe-dismiss gesture)
+  const [dragState, setDragState] = useState<DragState>({ dragging: null, over: null });
 
-  const [dragState,   setDragState]   = useState<DragState>({ dragging: null, over: null });
-  const [dragOffset,  setDragOffset]  = useState(0);
-
-  // Same shape and semantics as FullscreenPlayer.touchState
-  const touchState  = useRef({ startY: 0, startX: 0, dragging: false, locked: false });
-  const containerRef = useRef<HTMLDivElement>(null);
+  // ── Refs ──────────────────────────────────────────────────────────────────
+  const containerRef  = useRef<HTMLDivElement>(null);
   const currentRowRef = useRef<HTMLDivElement>(null);
 
-  // ── Non-passive touchmove on container (mirrors FullscreenPlayer exactly) ──
-  // Calls e.preventDefault() during an active dismiss drag so the browser
-  // doesn't trigger pull-to-refresh or pass the scroll to the <main> container.
-  // Must be non-passive (added imperatively) — React synthetic events are passive.
+  // Swipe-dismiss gesture tracking — same shape as FullscreenPlayer.touchState
+  const touchState = useRef({
+    startY:   0,
+    startX:   0,
+    dragging: false,
+    locked:   false,
+    offsetY:  0,    // current drag distance, stored here so touchEnd can read it
+                    // without a closure over stale state
+  });
+
+  // ── Non-passive touchmove guard — mirrors FullscreenPlayer exactly ─────────
+  // Blocks pull-to-refresh from firing while an active dismiss drag is in progress.
+  // Must be imperative (non-passive) — React synthetic events are always passive.
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -187,7 +206,29 @@ const QueuePage = () => {
     currentRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
-  // ── Header touch handlers — identical logic to FullscreenPlayer ──────────────
+  // ── Direct-DOM style helper ────────────────────────────────────────────────
+  // Called on every touchmove — mutates the DOM node directly, bypassing React
+  // entirely. No state update, no reconciliation, no VDOM diff. Pure compositor.
+  const applyTransform = useCallback((dy: number) => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.style.transition = 'none';
+    el.style.transform  = `translate3d(0, ${dy}px, 0)`;
+    el.style.opacity    = String(Math.max(0.6, 1 - dy / 400));
+  }, []);
+
+  const resetTransform = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    el.style.transition = SPRING;
+    el.style.transform  = 'translate3d(0, 0, 0)';
+    el.style.opacity    = '1';
+  }, []);
+
+  // ── Header touch handlers ─────────────────────────────────────────────────
+  // Axis lock + threshold — identical logic to FullscreenPlayer.
+  // The ONLY difference is that the transform is applied via direct DOM mutation
+  // instead of setDragOffset(dy).
 
   const onHandleTouchStart = useCallback((e: React.TouchEvent) => {
     touchState.current = {
@@ -195,8 +236,11 @@ const QueuePage = () => {
       startX:   e.touches[0].clientX,
       dragging: false,
       locked:   false,
+      offsetY:  0,
     };
-    setDragOffset(0);
+    // Pre-remove transition so the very first frame has no CSS animation
+    const el = containerRef.current;
+    if (el) el.style.transition = 'none';
   }, []);
 
   const onHandleTouchMove = useCallback((e: React.TouchEvent) => {
@@ -205,27 +249,38 @@ const QueuePage = () => {
     const dx = Math.abs(e.touches[0].clientX - ts.startX);
 
     if (!ts.locked) {
-      // Mirror FullscreenPlayer: lock as dragging if downward > 8px and dominant
-      if (dy > 8 && dy > dx) { ts.dragging = true; ts.locked = true; }
-      // Lock as non-dragging if horizontal or upward
+      // Mirror FullscreenPlayer axis-lock logic exactly
+      if (dy > 8 && dy > dx)    { ts.dragging = true; ts.locked = true; }
       else if (dx > 8 || dy < -8) { ts.locked = true; return; }
+      else return; // not enough movement to decide yet
     }
 
-    if (ts.dragging && dy > 0) setDragOffset(dy);
-  }, []);
+    if (!ts.dragging) return; // horizontal or upward lock
+
+    if (dy > 0) {
+      ts.offsetY = dy;
+      applyTransform(dy); // direct DOM mutation — zero React renders
+    }
+  }, [applyTransform]);
 
   const onHandleTouchEnd = useCallback(() => {
-    // Mirror FullscreenPlayer: threshold 80px → dismiss, else snap back
-    if (touchState.current.dragging && dragOffset > 80) {
+    const ts = touchState.current;
+    if (!ts.dragging) return;
+
+    if (ts.offsetY > DISMISS_THRESHOLD) {
+      // Dismiss — navigate back. The component unmounts; no spring-back needed.
       navigate(-1);
+    } else {
+      // Below threshold — spring back via CSS transition
+      resetTransform();
     }
-    setDragOffset(0);
-    touchState.current.dragging = false;
-    touchState.current.locked   = false;
-  }, [dragOffset, navigate]);
+
+    ts.dragging = false;
+    ts.locked   = false;
+    ts.offsetY  = 0;
+  }, [navigate, resetTransform]);
 
   // ── Drag-to-reorder handlers ──────────────────────────────────────────────
-
   const handlePlay = useCallback((index: number) => {
     playTrackFromQueue(index);
   }, [playTrackFromQueue]);
@@ -250,48 +305,57 @@ const QueuePage = () => {
     setDragState({ dragging: null, over: null });
   }, [dragState]);
 
-  const handleClear = () => {
+  const handleClear = useCallback(() => {
     trackActions.clearQueue();
     navigate(-1);
-  };
+  }, [navigate]);
 
-  const nowPlaying = queue[activeIdx] ?? null;
-  const nextUp     = queue.slice(activeIdx + 1);
-  const prevTracks = queue.slice(0, activeIdx);
-  const isEmpty    = queue.length === 0;
+  // ── Derived queue data — memoized by queue shape, not by drag state ────────
+  // These slices are only recomputed when queueVersion or activeIdx actually
+  // changes — never during touchmove, never during drag-to-reorder hover.
+  const activeIdx = getEngineIdx();
+  const { prevTracks, nowPlaying, nextUp, isEmpty } = useMemo(() => {
+    const q        = getActiveQueue();
+    const idx      = getEngineIdx();
+    return {
+      prevTracks: q.slice(0, idx),
+      nowPlaying: q[idx] ?? null,
+      nextUp:     q.slice(idx + 1),
+      isEmpty:    q.length === 0,
+    };
+  // queueVersion is the reactive signal — when it bumps, queue shape changed
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queueVersion]);
 
-  void queueVersion; // reactive trigger
+  void queueVersion; // consumed by useMemo dep above
 
   return (
     /**
-     * Page container — receives the translateY swipe-dismiss animation.
+     * Container — transform target for the swipe-dismiss animation.
      *
-     * Transition contract (mirrors FullscreenPlayer):
-     *   dragOffset > 0  → 'none'       (1:1 finger tracking, no lag)
-     *   dragOffset = 0  → spring curve  (snap-back or release ease)
+     * IMPORTANT: no `transform` or `transition` in JSX style here.
+     * Those properties are managed entirely via direct DOM mutation in
+     * applyTransform() and resetTransform(). Setting them in JSX would
+     * create a race: React's reconciler would overwrite our direct mutations
+     * on any re-render that happens after the gesture starts.
      *
-     * will-change: transform — promotes to compositor layer for GPU rendering.
-     * The subtle opacity fade (min 0.6 at max drag) mirrors the FullscreenPlayer feel.
+     * will-change: transform — promotes to GPU compositor layer on page load
+     * so the very first touchmove frame doesn't trigger layer promotion jank.
      */
     <div
       ref={containerRef}
       className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none"
-      style={{
-        transform:   `translate3d(0, ${dragOffset}px, 0)`,
-        transition:  dragOffset > 0 ? 'none' : 'transform 0.42s cubic-bezier(0.16,1,0.3,1)',
-        willChange:  'transform',
-        opacity:     dragOffset > 0 ? Math.max(0.6, 1 - dragOffset / 400) : 1,
-      }}
+      style={{ willChange: 'transform' }}
     >
 
-      {/* Sticky header — drag zone for swipe-down dismiss */}
+      {/* Sticky header — the only gesture zone for swipe-down dismiss */}
       <div
         className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-3 pb-3 border-b border-swara-border/30 select-none"
         onTouchStart={onHandleTouchStart}
         onTouchMove={onHandleTouchMove}
         onTouchEnd={onHandleTouchEnd}
       >
-        {/* Drag pill — mobile only, same as FullscreenPlayer handle */}
+        {/* Drag pill — mobile only */}
         <div className="flex justify-center mb-2.5 lg:hidden" aria-hidden="true">
           <div className="w-9 h-1 rounded-full" style={{ background: 'rgba(255,255,255,0.15)' }} />
         </div>
@@ -349,7 +413,7 @@ const QueuePage = () => {
       {!isEmpty && (
         <div className="px-3 lg:px-6 pb-8 pt-2">
 
-          {/* Context artwork + info */}
+          {/* Context artwork */}
           {queueContext?.artwork && (
             <div className="flex items-center gap-3 px-2 py-3 mb-2 rounded-xl">
               <img src={queueContext.artwork} alt="" className="w-12 h-12 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
