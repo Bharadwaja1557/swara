@@ -7,10 +7,10 @@
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *     e.g. search UX fixes, toast system, stats section, queue UX polish
  *
- * CURRENT: 3.4
+ * CURRENT: 3.5
  *   3.x = Queue Architecture phase
- *   .4  = Queue gesture pipeline optimization (direct DOM mutation, zero re-renders)
+ *   .5  = Queue gesture bidirectional fix (Math.max clamp, no frozen-page)
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '3.4';
+export const APP_VERSION = '3.5';

@@ -249,18 +249,33 @@ const QueuePage = () => {
     const dx = Math.abs(e.touches[0].clientX - ts.startX);
 
     if (!ts.locked) {
-      // Mirror FullscreenPlayer axis-lock logic exactly
-      if (dy > 8 && dy > dx)    { ts.dragging = true; ts.locked = true; }
+      // Axis-lock: wait for 8px of movement, then commit to vertical or abort
+      if (dy > 8 && dy > dx)      { ts.dragging = true; ts.locked = true; }
       else if (dx > 8 || dy < -8) { ts.locked = true; return; }
       else return; // not enough movement to decide yet
     }
 
-    if (!ts.dragging) return; // horizontal or upward lock
+    if (!ts.dragging) return; // locked as horizontal — ignore
 
-    if (dy > 0) {
-      ts.offsetY = dy;
-      applyTransform(dy); // direct DOM mutation — zero React renders
-    }
+    // FIX: clamp to Math.max(0, dy) instead of guarding with `if (dy > 0)`.
+    //
+    // Previous code:
+    //   if (dy > 0) { ts.offsetY = dy; applyTransform(dy); }
+    //
+    // That guard caused the frozen-page bug: once the gesture was active and the
+    // finger reversed upward, dy became ≤ 0, the condition failed, applyTransform
+    // was never called, and the page stayed stuck at its last downward position.
+    //
+    // With Math.max(0, dy):
+    //   dy > 0  → page follows finger downward (offset = dy)
+    //   dy = 0  → page is at resting position  (offset = 0)
+    //   dy < 0  → page stays at rest           (offset clamped to 0)
+    //
+    // applyTransform is called on EVERY frame after axis lock, so the page
+    // continuously tracks the finger in both directions while still touching.
+    const offset = Math.max(0, dy);
+    ts.offsetY = offset;
+    applyTransform(offset);
   }, [applyTransform]);
 
   const onHandleTouchEnd = useCallback(() => {
