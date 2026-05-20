@@ -3,32 +3,32 @@
  *
  * Route: /queue  ·  Mobile (full page) + Desktop (center column)
  *
- * FIXES IN THIS VERSION:
+ * SWIPE-DOWN DISMISS — mirrors FullscreenPlayer exactly:
  *
- * 1. DRAG AFFORDANCE VISIBILITY
- *    Drag handle and remove button are always visible (no opacity-0/group-hover).
- *    Touch devices have no hover state, so hiding on !hover made them invisible.
+ *   State:  dragOffset (number, px) — drives translateY on the page container
+ *   Ref:    touchState — gesture tracking without re-renders (same shape as
+ *           FullscreenPlayer's touchState ref)
+ *   Transition contract:
+ *     - dragOffset > 0  → transition: 'none'  (follows finger 1:1, no lag)
+ *     - dragOffset = 0  → transition: 'transform 0.42s cubic-bezier(0.16,1,0.3,1)'
+ *                          (spring-back or enter animation)
+ *   Dismiss: dragOffset > 80px on release → navigate(-1)
+ *            dragOffset ≤ 80px on release → setDragOffset(0) → spring back
  *
- * 2. DRAG INDICATOR COLOR BUG
- *    Root cause: using Tailwind's `border-t-2 border-swara-accent` on the row
- *    element itself. When `isOver` flips false, the class removal goes through
- *    two React render→commit cycles: border-width and border-color are cleared
- *    on separate microtask frames. For one frame the element has `border-t-2`
- *    (inherits white from browser default) but not yet `border-swara-accent`.
- *    Fix: render the indicator as a separate absolutely-positioned <div> with
- *    explicit inline `background: #c8a96e`. No CSS class toggling, no Tailwind
- *    class splits, no inter-frame color inheritance. The indicator element simply
- *    renders or doesn't render — no style flash possible.
+ *   Non-passive touchmove listener on the page container prevents
+ *   pull-to-refresh during an active dismiss drag (same as FullscreenPlayer).
  *
- * 3. SWIPE-DOWN DISMISS (mobile)
- *    Touch gesture on the header area. Threshold: 72px downward drag.
- *    Lock-axis guard prevents accidental dismissal during normal list scroll.
- *    Header has `touch-action: pan-x` so vertical swipes are not stolen from
- *    the scroll container; we handle them manually in the header only.
+ *   Axis lock: first 8px of movement determines whether gesture is vertical
+ *   or horizontal. Horizontal lock → gesture ignored, normal scroll preserved.
  *
- * 4. REACTIVITY
- *    Subscribes to queueVersion — bumped on every structural queue mutation.
- *    Queue is read fresh from engine on every render. No stale local state.
+ *   Scroll-vs-dismiss conflict: gesture only activates from the header zone.
+ *   The scrollable list area has its own touch handlers untouched — the
+ *   header's handlers intercept before bubbling down to the list.
+ *
+ *   Desktop: dragOffset is always 0, touch handlers are no-ops, no visual change.
+ *
+ * DRAG AFFORDANCE: always visible at opacity-40 (not hover-only).
+ * DRAG INDICATOR: separate positioned <div>, not a CSS border — no color flash.
  */
 import { useRef, useEffect, useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -64,10 +64,6 @@ function contextLabel(ctx: QueueContext | null): string {
 interface DragState { dragging: number | null; over: number | null; }
 
 // ── Queue row ─────────────────────────────────────────────────────────────────
-// FIX 1: drag handle + remove button are always visible (opacity-100, not opacity-0).
-// FIX 2: insertion indicator is a separate positioned <div>, not a CSS border.
-//        This eliminates the white-flash caused by Tailwind border-color/border-width
-//        applying on different render frames during class removal.
 const QueueRow = ({
   track, isActive, isPlaying,
   onPlay, onRemove, onDragStart, onDragEnter, onDragEnd,
@@ -78,10 +74,8 @@ const QueueRow = ({
   onDragStart: () => void; onDragEnter: () => void; onDragEnd: () => void;
   isDragging: boolean; isOver: boolean;
 }) => (
-  // Use `relative` so the insertion indicator can be positioned absolutely
   <div className="relative">
-    {/* Insertion indicator — separate element, always accent-colored.
-        Never touches the row's own border so there's no class-removal flash. */}
+    {/* Insertion indicator — separate element with hardcoded color, no class-toggle flash */}
     {isOver && (
       <div
         className="absolute top-0 left-3 right-3 h-[2px] rounded-full pointer-events-none z-10"
@@ -105,14 +99,16 @@ const QueueRow = ({
       onKeyDown={(e) => { if (e.key === 'Enter') onPlay(); }}
       aria-label={`${track.title} — ${track.artist}`}
     >
-      {/* Drag handle — always visible (opacity-40 at rest, opacity-70 on hover) */}
+      {/* Drag handle — always visible */}
       <div
         className="flex-shrink-0 text-swara-dim opacity-40 hover:opacity-70 transition-opacity cursor-grab active:cursor-grabbing"
         onClick={(e) => e.stopPropagation()}
         aria-hidden="true"
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-          <line x1="8" y1="6" x2="16" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="8" y1="18" x2="16" y2="18"/>
+          <line x1="8" y1="6" x2="16" y2="6"/>
+          <line x1="8" y1="12" x2="16" y2="12"/>
+          <line x1="8" y1="18" x2="16" y2="18"/>
         </svg>
       </div>
 
@@ -129,7 +125,7 @@ const QueueRow = ({
         <p className="text-[0.72rem] text-swara-muted truncate mt-[1px]">{track.artist}</p>
       </div>
 
-      {/* Right: playing bars or remove button — remove is always visible */}
+      {/* Right: playing bars or remove — always visible */}
       <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
         {isActive && isPlaying ? (
           <PlayingBars />
@@ -160,65 +156,75 @@ const QueuePage = () => {
   const queueContext       = usePlayerStore((s) => s.queueContext);
   const playTrackFromQueue = usePlayerStore((s) => s.playTrackFromQueue);
 
-  // Derive live queue from engine on every render
+  // Derive live queue from engine on every render (queueVersion triggers re-render)
   const queue     = getActiveQueue();
   const activeIdx = getEngineIdx();
 
-  const [dragState, setDragState] = useState<DragState>({ dragging: null, over: null });
+  const [dragState,   setDragState]   = useState<DragState>({ dragging: null, over: null });
+  const [dragOffset,  setDragOffset]  = useState(0);
+
+  // Same shape and semantics as FullscreenPlayer.touchState
+  const touchState  = useRef({ startY: 0, startX: 0, dragging: false, locked: false });
+  const containerRef = useRef<HTMLDivElement>(null);
   const currentRowRef = useRef<HTMLDivElement>(null);
 
-  // ── Swipe-down dismiss (FIX 4) ──────────────────────────────────────────────
-  // Gesture is captured only in the header. A downward drag of ≥72px navigates
-  // back. Lock-axis detection prevents false triggers during horizontal scroll
-  // or upward swipes. We use a ref (not state) for the gesture tracking so that
-  // touch handler closures are always reading fresh values without re-creating.
-  const swipeRef = useRef({
-    startY:    0,
-    startX:    0,
-    dragging:  false,
-    locked:    false,   // true once axis has been determined
-    axisH:     false,   // locked to horizontal — ignore
-  });
-  const DISMISS_THRESHOLD = 72; // px of downward travel required
-
-  const onHeaderTouchStart = useCallback((e: React.TouchEvent) => {
-    const t = e.touches[0];
-    swipeRef.current = { startY: t.clientY, startX: t.clientX, dragging: false, locked: false, axisH: false };
+  // ── Non-passive touchmove on container (mirrors FullscreenPlayer exactly) ──
+  // Calls e.preventDefault() during an active dismiss drag so the browser
+  // doesn't trigger pull-to-refresh or pass the scroll to the <main> container.
+  // Must be non-passive (added imperatively) — React synthetic events are passive.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (e: TouchEvent) => {
+      if (touchState.current.dragging) e.preventDefault();
+    };
+    el.addEventListener('touchmove', handler, { passive: false });
+    return () => el.removeEventListener('touchmove', handler);
   }, []);
-
-  const onHeaderTouchMove = useCallback((e: React.TouchEvent) => {
-    const s = swipeRef.current;
-    const dy = e.touches[0].clientY - s.startY;
-    const dx = Math.abs(e.touches[0].clientX - s.startX);
-
-    // Determine axis on first significant movement
-    if (!s.locked) {
-      if (Math.abs(dy) < 5 && dx < 5) return; // not yet moved enough to decide
-      s.locked = true;
-      s.axisH  = dx > Math.abs(dy);            // horizontal dominant → ignore
-    }
-
-    if (s.axisH) return; // horizontal gesture — don't steal
-    if (dy <= 0) return;  // upward drag — don't dismiss
-
-    s.dragging = true;
-    // Prevent page scroll while we're handling the dismiss gesture
-    e.preventDefault();
-  }, []);
-
-  const onHeaderTouchEnd = useCallback((e: React.TouchEvent) => {
-    const s = swipeRef.current;
-    if (!s.dragging) return;
-    const dy = e.changedTouches[0].clientY - s.startY;
-    if (dy >= DISMISS_THRESHOLD) {
-      navigate(-1);
-    }
-  }, [navigate]);
 
   // Auto-scroll current track into view on mount
   useEffect(() => {
     currentRowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
+
+  // ── Header touch handlers — identical logic to FullscreenPlayer ──────────────
+
+  const onHandleTouchStart = useCallback((e: React.TouchEvent) => {
+    touchState.current = {
+      startY:   e.touches[0].clientY,
+      startX:   e.touches[0].clientX,
+      dragging: false,
+      locked:   false,
+    };
+    setDragOffset(0);
+  }, []);
+
+  const onHandleTouchMove = useCallback((e: React.TouchEvent) => {
+    const ts = touchState.current;
+    const dy = e.touches[0].clientY - ts.startY;
+    const dx = Math.abs(e.touches[0].clientX - ts.startX);
+
+    if (!ts.locked) {
+      // Mirror FullscreenPlayer: lock as dragging if downward > 8px and dominant
+      if (dy > 8 && dy > dx) { ts.dragging = true; ts.locked = true; }
+      // Lock as non-dragging if horizontal or upward
+      else if (dx > 8 || dy < -8) { ts.locked = true; return; }
+    }
+
+    if (ts.dragging && dy > 0) setDragOffset(dy);
+  }, []);
+
+  const onHandleTouchEnd = useCallback(() => {
+    // Mirror FullscreenPlayer: threshold 80px → dismiss, else snap back
+    if (touchState.current.dragging && dragOffset > 80) {
+      navigate(-1);
+    }
+    setDragOffset(0);
+    touchState.current.dragging = false;
+    touchState.current.locked   = false;
+  }, [dragOffset, navigate]);
+
+  // ── Drag-to-reorder handlers ──────────────────────────────────────────────
 
   const handlePlay = useCallback((index: number) => {
     playTrackFromQueue(index);
@@ -254,22 +260,39 @@ const QueuePage = () => {
   const prevTracks = queue.slice(0, activeIdx);
   const isEmpty    = queue.length === 0;
 
-  void queueVersion; // reactive trigger — used via render, not directly
+  void queueVersion; // reactive trigger
 
   return (
-    <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
+    /**
+     * Page container — receives the translateY swipe-dismiss animation.
+     *
+     * Transition contract (mirrors FullscreenPlayer):
+     *   dragOffset > 0  → 'none'       (1:1 finger tracking, no lag)
+     *   dragOffset = 0  → spring curve  (snap-back or release ease)
+     *
+     * will-change: transform — promotes to compositor layer for GPU rendering.
+     * The subtle opacity fade (min 0.6 at max drag) mirrors the FullscreenPlayer feel.
+     */
+    <div
+      ref={containerRef}
+      className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none"
+      style={{
+        transform:   `translate3d(0, ${dragOffset}px, 0)`,
+        transition:  dragOffset > 0 ? 'none' : 'transform 0.42s cubic-bezier(0.16,1,0.3,1)',
+        willChange:  'transform',
+        opacity:     dragOffset > 0 ? Math.max(0.6, 1 - dragOffset / 400) : 1,
+      }}
+    >
 
-      {/* Sticky header — gesture zone for swipe-down dismiss on mobile */}
+      {/* Sticky header — drag zone for swipe-down dismiss */}
       <div
-        className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-5 pb-3 border-b border-swara-border/30"
-        onTouchStart={onHeaderTouchStart}
-        onTouchMove={onHeaderTouchMove}
-        onTouchEnd={onHeaderTouchEnd}
-        // Allow horizontal pan (for any nested scrollables) but handle vertical manually
-        style={{ touchAction: 'pan-x' }}
+        className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-3 pb-3 border-b border-swara-border/30 select-none"
+        onTouchStart={onHandleTouchStart}
+        onTouchMove={onHandleTouchMove}
+        onTouchEnd={onHandleTouchEnd}
       >
-        {/* Swipe indicator pill — visible on mobile to hint at dismiss gesture */}
-        <div className="flex justify-center mb-2 lg:hidden" aria-hidden="true">
+        {/* Drag pill — mobile only, same as FullscreenPlayer handle */}
+        <div className="flex justify-center mb-2.5 lg:hidden" aria-hidden="true">
           <div className="w-9 h-1 rounded-full" style={{ background: 'rgba(255,255,255,0.15)' }} />
         </div>
 
@@ -349,13 +372,10 @@ const QueuePage = () => {
                 {prevTracks.map((track, i) => (
                   <QueueRow key={`prev-${track.id}-${i}`}
                     track={track} isActive={false} isPlaying={false}
-                    onPlay={() => handlePlay(i)}
-                    onRemove={() => handleRemove(i)}
-                    onDragStart={() => handleDragStart(i)}
-                    onDragEnter={() => handleDragEnter(i)}
+                    onPlay={() => handlePlay(i)} onRemove={() => handleRemove(i)}
+                    onDragStart={() => handleDragStart(i)} onDragEnter={() => handleDragEnter(i)}
                     onDragEnd={handleDragEnd}
-                    isDragging={dragState.dragging === i}
-                    isOver={dragState.over === i}
+                    isDragging={dragState.dragging === i} isOver={dragState.over === i}
                   />
                 ))}
               </div>
@@ -371,13 +391,10 @@ const QueuePage = () => {
               <div ref={currentRowRef}>
                 <QueueRow
                   track={nowPlaying} isActive={true} isPlaying={isPlaying}
-                  onPlay={() => handlePlay(activeIdx)}
-                  onRemove={() => handleRemove(activeIdx)}
-                  onDragStart={() => handleDragStart(activeIdx)}
-                  onDragEnter={() => handleDragEnter(activeIdx)}
+                  onPlay={() => handlePlay(activeIdx)} onRemove={() => handleRemove(activeIdx)}
+                  onDragStart={() => handleDragStart(activeIdx)} onDragEnter={() => handleDragEnter(activeIdx)}
                   onDragEnd={handleDragEnd}
-                  isDragging={dragState.dragging === activeIdx}
-                  isOver={dragState.over === activeIdx}
+                  isDragging={dragState.dragging === activeIdx} isOver={dragState.over === activeIdx}
                 />
               </div>
             </div>
@@ -394,13 +411,10 @@ const QueuePage = () => {
                 return (
                   <QueueRow key={`next-${track.id}-${absIdx}`}
                     track={track} isActive={false} isPlaying={false}
-                    onPlay={() => handlePlay(absIdx)}
-                    onRemove={() => handleRemove(absIdx)}
-                    onDragStart={() => handleDragStart(absIdx)}
-                    onDragEnter={() => handleDragEnter(absIdx)}
+                    onPlay={() => handlePlay(absIdx)} onRemove={() => handleRemove(absIdx)}
+                    onDragStart={() => handleDragStart(absIdx)} onDragEnter={() => handleDragEnter(absIdx)}
                     onDragEnd={handleDragEnd}
-                    isDragging={dragState.dragging === absIdx}
-                    isOver={dragState.over === absIdx}
+                    isDragging={dragState.dragging === absIdx} isOver={dragState.over === absIdx}
                   />
                 );
               })}
