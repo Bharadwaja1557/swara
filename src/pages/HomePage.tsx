@@ -6,6 +6,7 @@ import ExploreAlbums   from '@/components/home/ExploreAlbums';
 import { useMemo } from 'react';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useProfileStore } from '@/store/useProfileStore';
+import { APP_VERSION } from '@/version';
 
 // ── Library Stats ─────────────────────────────────────────────────────────────
 const LibraryStats = () => {
@@ -86,8 +87,12 @@ const HomePage = () => {
               <p className="text-swara-muted text-sm">No albums found in the library.</p>
             </div>
           )}
-          {/* Stats footer — shows total albums + tracks from library */}
+          {/* Stats footer */}
           <LibraryStats />
+          {/* Version */}
+          <p className="text-center text-[0.62rem] text-swara-dim/40 pb-8 tracking-widest font-medium select-none">
+            swara v{APP_VERSION}
+          </p>
         </>
       )}
     </div>

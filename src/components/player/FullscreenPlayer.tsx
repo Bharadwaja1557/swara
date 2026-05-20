@@ -361,7 +361,7 @@ const FullscreenPlayer = () => {
             </div>
 
             {/* Controls — exact git-play layout */}
-            <div className="flex items-center justify-center gap-2 mb-6">
+            <div className="flex items-center justify-center gap-2 mb-4">
               {/* Shuffle */}
               <button type="button" onClick={toggleShuffle}
                 className="flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-200"
@@ -416,6 +416,25 @@ const FullscreenPlayer = () => {
                 className="flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-200"
                 style={{ color: repeat !== 'off' ? '#c8a96e' : '#5c5650' }} aria-label={`Repeat: ${repeat}`}>
                 <RepeatIcon />
+              </button>
+            </div>
+
+            {/* Queue button row — mobile primary entry point to /queue */}
+            <div className="flex justify-center mb-6">
+              <button
+                type="button"
+                onClick={() => { setExpanded(false); setTimeout(() => navigate('/queue'), 320); }}
+                className="flex items-center gap-2 px-5 py-2 rounded-full transition-colors duration-200 active:scale-95"
+                style={{ background: 'rgba(255,255,255,0.06)', color: '#5c5650' }}
+                aria-label="View queue"
+              >
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/>
+                  <line x1="8" y1="18" x2="21" y2="18"/>
+                  <line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/>
+                  <line x1="3" y1="18" x2="3.01" y2="18"/>
+                </svg>
+                <span className="text-[0.75rem] font-medium tracking-wide">Queue</span>
               </button>
             </div>
 
