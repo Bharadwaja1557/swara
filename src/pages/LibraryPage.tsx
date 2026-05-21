@@ -88,12 +88,24 @@ const LibraryPage = () => {
   const navigate = useNavigate();
 
   // ── Store subscriptions ───────────────────────────────────────────────────
+  // Use per-field selectors so the component only re-renders when the specific
+  // slice it needs changes — not on every isSyncing / hydrated toggle.
 
   const { albumMap, artistMap, trackMap } = useLibraryStore();
-  const { entries }    = useUserLibraryStore();
-  const { playlists }  = usePlaylistStore();
+  const entries   = useUserLibraryStore((s) => s.entries);
+  const playlists = usePlaylistStore((s) => s.playlists);
+
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
   const likedCount     = getLikedTracks().length;
+
+  // ── Diagnostic logging ────────────────────────────────────────────────────
+  console.log(
+    '[LibraryPage] render — tab:', tab,
+    '| entries:', entries.length,
+    '| playlists:', playlists.length,
+    '| TABS:', TABS,
+    '| libraryPlaylists will compute on next memo pass'
+  );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -141,6 +153,7 @@ const LibraryPage = () => {
   // Playlists: come directly from usePlaylistStore — no resolution needed.
   // Sort by updatedAt for "Recently Added" (most recently edited first).
   const libraryPlaylists = useMemo((): Playlist[] => {
+    console.log('[LibraryPage] libraryPlaylists memo — playlists.length:', playlists.length, '| sort:', sort);
     if (sort === 'Recently Added') {
       return [...playlists].sort(
         (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
@@ -376,6 +389,8 @@ const LibraryPage = () => {
         )}
 
         {/* ── Playlists tab ──────────────────────────────────────────────── */}
+        {/* Diagnostic: log whether this branch executes */}
+        {tab === 'Playlists' && console.log('[LibraryPage] Playlists tab branch executing — libraryPlaylists.length:', libraryPlaylists.length) as unknown as null}
         {tab === 'Playlists' && libraryPlaylists.length > 0 && (
           // Playlists always render as a grid — matches how streaming apps present them
           <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 lg:gap-4">
