@@ -7,27 +7,19 @@
  *   2a. load()              — fetch library stubs (parallel with 2b)
  *   2b. fetchProfile()      — fetch user profile (parallel with 2a)
  *   3. loadAlbumTracks()    — load ALL album track lists in parallel
- *                             (libraryStore uses functional set() — no race)
- *   4. restorePlayback()    — resolve saved queue IDs against trackMap, restore
- *                             engine state, DO NOT autoplay
- *   5. liked.syncFromCloud()    — fetch liked IDs from Supabase, resolve via trackMap
- *                                 (O(1)), REPLACE local liked state
- *   6. library.syncFromCloud()  — fetch user library entries from Supabase,
- *                                 REPLACE local library state
+ *   4. restorePlayback()    — resolve saved queue IDs against trackMap
+ *   5. liked.syncFromCloud()    — fetch liked IDs from Supabase
+ *   6. library.syncFromCloud()  — fetch user library from Supabase
+ *   7. playlists.syncFromCloud()— fetch playlist stubs from Supabase
  *
- * Steps 3–6 run only once per session (syncDoneRef guard) and only after
- * steps 1 + 2a are confirmed complete (isAuth && loaded).
- *
- * Step 2b (profile) is initiated in the same effect as 2a (parallel) since
- * it has no dependency on the library.
- *
- * Steps 5 and 6 run in parallel — neither depends on the other.
+ * Steps 5, 6, 7 run in parallel (no inter-dependency).
  */
 import { Outlet }      from 'react-router-dom';
 import { useEffect, useRef } from 'react';
 import { useLibraryStore }      from '@/store/libraryStore';
 import { useLikedStore }        from '@/store/likedStore';
 import { useUserLibraryStore }  from '@/store/useUserLibraryStore';
+import { usePlaylistStore }     from '@/store/usePlaylistStore';
 import { useAuthStore }         from '@/store/useAuthStore';
 import { useProfileStore }      from '@/store/useProfileStore';
 import { useIsDesktop }         from '@/hooks/useIsDesktop';
@@ -135,13 +127,14 @@ const AppLayout = () => {
       console.log('[Startup] Restoring playback session...');
       restorePlaybackState(trackMap);
 
-      // ── Steps 5 + 6: sync liked songs AND user library in parallel ─────
-      // Both are independent — neither depends on the other.
-      // Both use cloud-authoritative replace strategy.
-      console.log('[Startup] Syncing liked songs and user library from cloud...');
+      // ── Steps 5 + 6 + 7: sync liked, library, playlists in parallel ──────
+      // All three are independent — none depends on the others.
+      // All use cloud-authoritative replace strategy.
+      console.log('[Startup] Syncing liked songs, user library, and playlists from cloud...');
       await Promise.all([
         useLikedStore.getState().syncFromCloud(),
         useUserLibraryStore.getState().syncFromCloud(),
+        usePlaylistStore.getState().syncFromCloud(),
       ]);
 
       console.log('[Startup] ══════════════════════════════════════════════');

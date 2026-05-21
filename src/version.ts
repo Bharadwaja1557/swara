@@ -7,10 +7,10 @@
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *     e.g. search UX fixes, toast system, stats section, queue UX polish
  *
- * CURRENT: 4.1
- *   4.x = Stabilization phase
- *   .1  = User library sync, store consolidation, auth cleanup, security hardening
+ * CURRENT: 5.0
+ *   5.x = Playlist phase
+ *   .0  = Full playlist foundation: backend, store, repository, UI, routing
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '4.1';
+export const APP_VERSION = '5.0';

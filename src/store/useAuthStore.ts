@@ -57,6 +57,12 @@ async function clearUserState(): Promise<void> {
   } catch (e) { console.warn('[Auth] clearUserState: userLibraryStore reset failed', e); }
 
   try {
+    // Playlists: clear Zustand + swara_playlists_v1 localStorage
+    const { usePlaylistStore } = await import('@/store/usePlaylistStore');
+    usePlaylistStore.getState().reset();
+  } catch (e) { console.warn('[Auth] clearUserState: playlistStore reset failed', e); }
+
+  try {
     // Profile: clear Zustand (no localStorage to clear)
     const { useProfileStore } = await import('@/store/useProfileStore');
     useProfileStore.getState().clearProfile();

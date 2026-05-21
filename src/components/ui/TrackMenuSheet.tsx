@@ -36,9 +36,10 @@ import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
 import BottomSheet             from '@/components/ui/BottomSheet';
 import ArtistPickerSheet       from '@/components/ui/ArtistPickerSheet';
+import PlaylistPickerSheet     from '@/components/ui/PlaylistPickerSheet';
 import type { Track }          from '@/types/music';
 
-export type TrackMenuContext = 'default' | 'player' | 'queue' | 'liked';
+export type TrackMenuContext = 'default' | 'player' | 'queue' | 'liked' | 'playlist';
 
 interface TrackMenuSheetProps {
   track:       Track;
@@ -47,6 +48,12 @@ interface TrackMenuSheetProps {
   context?:    TrackMenuContext;
   /** Called before any navigation action so caller can collapse player etc. */
   onNavigate?: () => void;
+  /** Required when context='playlist' — the playlist this track belongs to */
+  playlistId?: string;
+  /** Callback when track is removed from playlist (context='playlist') */
+  onRemoveFromPlaylist?: (entryId: string) => void;
+  /** Entry ID of this track in the playlist (context='playlist') */
+  entryId?: string;
 }
 
 // ── Icon SVGs (inline — no external deps) ────────────────────────────────────
@@ -96,13 +103,6 @@ const ArtistIcon = () => (
   </svg>
 );
 
-const StashIcon = () => (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10"/>
-    <path d="M12 8v8M8 12h8"/>
-  </svg>
-);
-
 // ── MenuItem ─────────────────────────────────────────────────────────────────
 
 const MenuItem = ({ icon, label, onClick, accent }: {
@@ -131,13 +131,15 @@ const Divider = () => <div className="mx-5 my-1 h-px bg-swara-border" />;
 
 export const TrackMenuSheet = ({
   track, isOpen, onClose, context = 'default', onNavigate,
+  playlistId, onRemoveFromPlaylist, entryId,
 }: TrackMenuSheetProps) => {
   const navigate = useNavigate();
   const liked    = useLikedStore((s) => s.isLiked(track.id));
   const { albums } = useLibraryStore();
   const inLib      = useUserLibraryStore((s) => s.hasTrack(track.albumId, track.id));
 
-  const [artistPickerOpen, setArtistPickerOpen] = useState(false);
+  const [artistPickerOpen,   setArtistPickerOpen]   = useState(false);
+  const [playlistPickerOpen, setPlaylistPickerOpen]  = useState(false);
 
   const albumFull = albums.find((a) => a.id === track.albumId);
 
@@ -177,6 +179,11 @@ export const TrackMenuSheet = ({
     onClose();
   };
 
+  const handleAddToPlaylist = () => {
+    onClose();
+    setPlaylistPickerOpen(true);
+  };
+
   // ── Action sets by context ────────────────────────────────────────────────
 
   const renderActions = () => {
@@ -188,13 +195,11 @@ export const TrackMenuSheet = ({
               label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
               accent={liked} onClick={handleLike} />
             <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
-              onClick={() => { onClose(); alert('Coming Soon'); }} />
+              onClick={handleAddToPlaylist} />
             <MenuItem icon={<BookIcon />}
               label={inLib ? 'Remove from Library' : 'Add to Library'}
               onClick={handleLibrary} />
             <Divider />
-            <MenuItem icon={<StashIcon />} label="Stash this Song"
-              onClick={() => { onClose(); alert('Coming Soon'); }} />
             <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
             <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
           </>
@@ -206,6 +211,8 @@ export const TrackMenuSheet = ({
             <MenuItem icon={<HeartIcon filled={liked} />}
               label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
               accent={liked} onClick={handleLike} />
+            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
+              onClick={handleAddToPlaylist} />
             <MenuItem icon={<BookIcon />}
               label={inLib ? 'Remove from Library' : 'Add to Library'}
               onClick={handleLibrary} />
@@ -221,7 +228,29 @@ export const TrackMenuSheet = ({
             <MenuItem icon={<HeartIcon filled={liked} />}
               label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
               accent={liked} onClick={handleLike} />
+            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
+              onClick={handleAddToPlaylist} />
             <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
+            <Divider />
+            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
+            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
+          </>
+        );
+
+      case 'playlist':
+        return (
+          <>
+            <MenuItem icon={<HeartIcon filled={liked} />}
+              label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
+              accent={liked} onClick={handleLike} />
+            <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
+            {playlistId && entryId && onRemoveFromPlaylist && (
+              <MenuItem
+                icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>}
+                label="Remove from Playlist"
+                onClick={() => { onRemoveFromPlaylist(entryId); onClose(); }}
+              />
+            )}
             <Divider />
             <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
             <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
@@ -235,6 +264,8 @@ export const TrackMenuSheet = ({
               label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
               accent={liked} onClick={handleLike} />
             <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
+            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
+              onClick={handleAddToPlaylist} />
             <MenuItem icon={<BookIcon />}
               label={inLib ? 'In My Library' : 'Add to My Library'}
               accent={inLib} onClick={handleLibrary} />
@@ -272,6 +303,14 @@ export const TrackMenuSheet = ({
         }}
         singers={track.artists}
         composer={track.composer || undefined}
+      />
+
+      {/* Playlist picker sub-sheet */}
+      <PlaylistPickerSheet
+        isOpen={playlistPickerOpen}
+        onClose={() => setPlaylistPickerOpen(false)}
+        trackId={track.id}
+        trackTitle={track.title}
       />
     </>
   );

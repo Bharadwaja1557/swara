@@ -16,6 +16,7 @@ import { useLikedStore }       from '@/store/likedStore';
 import { usePlayerStore }      from '@/store/playerStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import type { ToastIcon }      from '@/store/useToastStore';
+import type { Playlist }       from '@/store/usePlaylistStore';
 import {
   buildAlbumQueue,
   buildArtistQueue,
@@ -23,6 +24,7 @@ import {
   buildLibraryQueue,
   buildSearchQueue,
   buildManualQueue,
+  buildPlaylistQueue,
 } from '@/lib/queueBuilders';
 
 // ── Internal helper ───────────────────────────────────────────────────────────
@@ -85,6 +87,13 @@ export const trackActions = {
   /** Play from search results */
   playFromSearch: (track: Track, results: Track[], query: string): void => {
     const built = buildSearchQueue(results, query, track);
+    usePlayerStore.getState().playQueue(built);
+  },
+
+  /** Play a playlist, starting from an optional track */
+  playFromPlaylist: (tracks: Track[], playlist: Playlist, startTrack?: Track): void => {
+    if (!tracks.length) return;
+    const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, playlist.coverUrl, startTrack);
     usePlayerStore.getState().playQueue(built);
   },
 
