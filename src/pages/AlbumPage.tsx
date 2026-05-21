@@ -6,85 +6,10 @@ import { useLikedStore }       from '@/store/likedStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
-import BottomSheet             from '@/components/ui/BottomSheet';
-import ArtistPickerSheet       from '@/components/ui/ArtistPickerSheet';
+import TrackMenuSheet          from '@/components/ui/TrackMenuSheet';
 import type { Track, Album }   from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
-
-const TrackMenu = ({ track, album, isOpen, onClose }: {
-  track: Track; album: Album; isOpen: boolean; onClose: () => void;
-}) => {
-  const navigate = useNavigate();
-  // Fine-grained subscriptions — avoid full-store re-renders
-  const liked = useLikedStore((s) => s.isLiked(track.id));
-  const inLib = useUserLibraryStore((s) => s.hasTrack(album.id, track.id));
-
-  const [artistPickerOpen, setArtistPickerOpen] = useState(false);
-
-  const hasMultipleArtists =
-    track.artists.length > 1 ||
-    (track.composer && track.composer !== track.artists[0]);
-
-  const handleViewArtists = () => {
-    if (hasMultipleArtists) {
-      setArtistPickerOpen(true);
-    } else {
-      onClose();
-      navigate(`/artist/${slugify(track.artists[0] ?? track.artist)}`);
-    }
-  };
-
-  const MI = ({ icon, label, onClick, accent }: { icon: React.ReactNode; label: string; onClick: () => void; accent?: boolean }) => (
-    <button type="button" onClick={onClick}
-      className={['flex items-center gap-4 w-full px-5 py-3.5 text-[0.9rem] font-medium text-left hover:bg-white/5 active:bg-white/10 transition-colors', accent ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>
-      <span className="w-5 flex items-center justify-center flex-shrink-0 text-swara-muted">{icon}</span>
-      {label}
-    </button>
-  );
-
-  return (
-    <>
-      <BottomSheet isOpen={isOpen} onClose={onClose}>
-        <div className="px-5 pt-1 pb-3 border-b border-swara-border">
-          <p className="text-[0.95rem] font-semibold text-swara-text truncate">{track.title}</p>
-          <p className="text-[0.78rem] text-swara-muted mt-0.5 truncate">{album.title}</p>
-        </div>
-        <div className="py-1">
-          <MI
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/></svg>}
-            label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-            accent={liked}
-            onClick={() => { trackActions.toggleLike(track); }}
-          />
-          <MI
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>{inLib ? <line x1="9" y1="11" x2="15" y2="11" strokeWidth="2.5"/> : <><line x1="12" y1="8" x2="12" y2="14"/><line x1="9" y1="11" x2="15" y2="11"/></>}</svg>}
-            label={inLib ? 'In My Library' : 'Add to My Library'}
-            accent={inLib}
-            onClick={() => {
-              trackActions.toggleTrackLibrary(track, album);
-              onClose();
-            }}
-          />
-          <div className="mx-5 my-1 h-px bg-swara-border" />
-          <MI
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>}
-            label="View Artists"
-            onClick={handleViewArtists}
-          />
-        </div>
-      </BottomSheet>
-
-      <ArtistPickerSheet
-        isOpen={artistPickerOpen}
-        onClose={() => setArtistPickerOpen(false)}
-        onNavigate={() => { setArtistPickerOpen(false); onClose(); }}
-        singers={track.artists}
-        composer={track.composer || undefined}
-      />
-    </>
-  );
-};
 
 // ─── Playing bars ─────────────────────────────────────────────────────────────
 const PlayingBars = () => (
@@ -199,11 +124,11 @@ const TrackRow = memo(({ track, album }: { track: Track; album: Album }) => {
       {/* Only mounted after first open — keeps close animation, removes 25×
           fixed overlays from initial DOM paint */}
       {menuMounted && (
-        <TrackMenu
+        <TrackMenuSheet
           track={track}
-          album={album}
           isOpen={menuOpen}
           onClose={() => setMenuOpen(false)}
+          context="default"
         />
       )}
     </>

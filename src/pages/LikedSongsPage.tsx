@@ -12,6 +12,7 @@ import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
 import { trackActions } from '@/lib/trackActions';
+import TrackMenuSheet from '@/components/ui/TrackMenuSheet';
 import type { Track } from '@/types/music';
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/></svg>';
 
@@ -111,45 +112,14 @@ const LikedTrackRow = memo(({ track }: { track: Track }) => {
         </button>
       </div>
 
-      {/* Lazy-mounted track menu (same pattern as AlbumPage) */}
+      {/* Lazy-mounted track menu */}
       {menuMounted && (
-        <div
-          className="fixed inset-0 z-[90]"
-          style={{ pointerEvents: menuOpen ? 'auto' : 'none' }}
-        >
-          <div
-            className="absolute inset-0 bg-black/50 transition-opacity duration-300"
-            style={{ opacity: menuOpen ? 1 : 0 }}
-            onClick={() => setMenuOpen(false)}
-          />
-          <div
-            className="absolute bottom-0 left-0 right-0 rounded-t-2xl p-4 flex flex-col gap-1"
-            style={{
-              background: '#1a1a24',
-              transform: menuOpen ? 'translateY(0)' : 'translateY(100%)',
-              transition: 'transform 0.35s cubic-bezier(0.32,0.72,0,1)',
-            }}
-          >
-            <div className="flex items-center gap-3 pb-3 mb-2 border-b border-swara-border">
-              <img src={track.coverUrl || PH} alt="" className="w-10 h-10 rounded-lg object-cover" />
-              <div className="flex-1 min-w-0">
-                <p className="text-[0.88rem] font-semibold text-swara-text truncate">{track.title}</p>
-                <p className="text-[0.72rem] text-swara-muted truncate">{track.artist}</p>
-              </div>
-            </div>
-            <button type="button" onClick={() => { trackActions.toggleLike(track); setMenuOpen(false); }}
-              className="flex items-center gap-3 px-2 py-2.5 rounded-xl hover:bg-swara-card text-left transition-colors">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill={liked ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className={liked ? 'text-swara-accent' : 'text-swara-muted'} aria-hidden="true">
-                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-              </svg>
-              <span className="text-[0.88rem] text-swara-text">{liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}</span>
-            </button>
-            <button type="button" onClick={() => setMenuOpen(false)}
-              className="mt-1 py-2.5 text-center text-[0.85rem] text-swara-muted">
-              Cancel
-            </button>
-          </div>
-        </div>
+        <TrackMenuSheet
+          track={track}
+          isOpen={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          context="liked"
+        />
       )}
     </li>
   );

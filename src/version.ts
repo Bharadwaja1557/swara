@@ -7,11 +7,10 @@
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *     e.g. search UX fixes, toast system, stats section, queue UX polish
  *
- * CURRENT: 3.6
- *   3.x = Queue Architecture phase
- *   .6  = QueuePage mobile architecture rewrite — fixed inset-0 sheet,
- *          own scroll container, identical compositor model to FullscreenPlayer
+ * CURRENT: 4.0
+ *   4.x = Stabilization pass
+ *   .0  = Playback invariants, persistence versioning, menu unification
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '3.6';
+export const APP_VERSION = '4.0';

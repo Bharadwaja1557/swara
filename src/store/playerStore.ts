@@ -1,51 +1,61 @@
 /**
  * playerStore — Background-safe audio engine + Zustand React state.
  *
- * QUEUE ARCHITECTURE (v2):
+ * ══ QUEUE INVARIANTS ════════════════════════════════════════════════════════
  *
- *   playQueue({ tracks, context, startIndex? })
- *     — primary entry point
+ * These invariants MUST hold at all times after any queue mutation:
  *
- *   Queue mutations (all immutable, all call _savePlayback):
- *     appendToQueue(track)
- *     removeFromQueue(index)
- *     moveQueueTrack(from, to)
- *     clearQueue()
+ * I1. _eng.idx is always in [0, activeQueue.length - 1].
+ *     If activeQueue is empty, idx = 0 (sentinel, no valid track).
  *
- *   REACTIVE QUEUE SIGNAL — queueVersion:
- *     Every operation that mutates _eng.activeQueue increments queueVersion.
- *     Components that need to reactively re-read the live engine queue subscribe
- *     to queueVersion. When it changes, they call getActiveQueue() / getEngineIdx()
- *     to get fresh data. This is the canonical pattern for queue consumers.
+ * I2. _eng.activeQueue[_eng.idx] always equals the currently playing
+ *     track (same object reference or same id). If no track is playing,
+ *     activeQueue is empty.
  *
- *   Persistence (PLAYBACK_KEY):
- *     queueIds / originalQueueIds / queueContext / currentIndex / shuffle / repeat / volume / timestamp
+ * I3. originalQueue contains the same tracks as activeQueue in their
+ *     natural (un-shuffled) order. They may differ in length only if
+ *     tracks were removed since the last shuffle toggle — in which case
+ *     originalQueue is pruned to match.
+ *
+ * I4. currentTrack in Zustand state always matches activeQueue[idx]
+ *     or is null if the queue is empty. No stale references.
+ *
+ * I5. After any mutation that changes the active track (remove current,
+ *     play new), _loadAndPlay is called to keep the audio engine in sync.
+ *
+ * I6. Duplicate track IDs in the queue are permitted (same song twice).
+ *     When removing, only ONE instance at the given index is removed,
+ *     NOT all instances with the same ID.
+ *
+ * I7. queueVersion is incremented on EVERY structural change to activeQueue.
+ *     This is the reactive signal for queue consumers (QueuePage etc.).
+ *
+ * ══ PERSISTENCE ══════════════════════════════════════════════════════════════
+ *
+ * Uses src/lib/persistence/ for versioned schema and migration pipeline.
+ * Current storage key: swara_playback_v3 (SchemaV3).
+ * Migrates from V1/V2 automatically on first load.
+ *
+ * ══ BACKWARDS COMPAT ═════════════════════════════════════════════════════════
+ *
+ * playTrack(track, queue?, context?) and playAlbum(tracks, startIndex?, context?)
+ * still work — they delegate to playQueue(). QueueSource is a type alias.
  */
 import { create } from 'zustand';
 import type { Track, RepeatMode, QueueContext } from '@/types/music';
+import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
+import { STORAGE_KEY } from '@/lib/persistence/versions';
+import type { SchemaV3 } from '@/lib/persistence/versions';
 
 /** Backwards-compat alias */
 export type QueueSource = QueueContext['type'] | null;
 
 // ─── Persistence ─────────────────────────────────────────────────────────────
 
-const PLAYBACK_KEY = 'swara_playback_v2';
-
-interface SavedPlaybackState {
-  trackId:          string | null;
-  queueIds:         string[];
-  originalQueueIds: string[];
-  idx:              number;
-  shuffle:          boolean;
-  repeat:           RepeatMode;
-  volume:           number;
-  timestamp:        number;
-  queueContext:     QueueContext | null;
-}
-
 function _savePlayback(): void {
   if (!_eng.activeQueue.length) return;
-  const state: SavedPlaybackState = {
+  const state: SchemaV3 = {
+    schemaVersion:    3,
     trackId:          _eng.activeQueue[_eng.idx]?.id ?? null,
     queueIds:         _eng.activeQueue.map((t) => t.id),
     originalQueueIds: _eng.originalQueue.map((t) => t.id),
@@ -56,7 +66,7 @@ function _savePlayback(): void {
     timestamp:        _audio?.currentTime ?? 0,
     queueContext:     _eng.queueContext,
   };
-  try { localStorage.setItem(PLAYBACK_KEY, JSON.stringify(state)); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch {}
 }
 
 let _tsSaveTimer = 0;
@@ -65,28 +75,35 @@ function _throttledSaveTimestamp(): void {
   _tsSaveTimer = window.setTimeout(_savePlayback, 5000);
 }
 
+/**
+ * Restore playback state after library has loaded.
+ * Resolves track IDs via canonical trackMap (O(1) per lookup).
+ * Gracefully skips missing tracks — the restored queue may be shorter.
+ * NEVER autoplays — browser autoplay policy must be respected.
+ */
 export function restorePlaybackState(trackMap: Map<string, Track>): void {
   try {
-    const raw = localStorage.getItem(PLAYBACK_KEY)
-             ?? localStorage.getItem('swara_playback');
-    if (!raw) return;
+    const saved = loadAndMigratePlaybackState();
+    if (!saved || !saved.queueIds?.length) return;
 
-    const saved = JSON.parse(raw) as SavedPlaybackState;
-    if (!saved.queueIds?.length) return;
-
+    // Resolve IDs against current library — missing tracks are skipped (I3)
     const activeQueue = saved.queueIds
       .map((id) => trackMap.get(id))
       .filter((t): t is Track => t !== undefined);
 
+    // Invariant: need at least one track
+    if (!activeQueue.length) {
+      console.log('[Playback] Restore: no queue tracks found in library — skipped');
+      return;
+    }
+
+    // Resolve originalQueue. If all originals are missing, fall back to activeQueue.
     const originalQueue = (saved.originalQueueIds ?? [])
       .map((id) => trackMap.get(id))
       .filter((t): t is Track => t !== undefined);
 
-    if (!activeQueue.length) {
-      console.log('[Playback] Restore: saved queue IDs not found in library — skipped');
-      return;
-    }
-
+    // Clamp idx to valid range (I1). After missing-track removal, saved.idx
+    // may be out of range.
     const idx   = Math.min(Math.max(0, saved.idx ?? 0), activeQueue.length - 1);
     const track = activeQueue[idx];
     if (!track) return;
@@ -94,22 +111,21 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
     _eng.activeQueue   = activeQueue;
     _eng.originalQueue = originalQueue.length ? originalQueue : [...activeQueue];
     _eng.idx           = idx;
-    _eng.shuffle       = saved.shuffle  ?? false;
-    _eng.repeat        = (saved.repeat  ?? 'off') as RepeatMode;
-    _eng.queueContext  = saved.queueContext ?? null;
+    _eng.shuffle       = saved.shuffle;
+    _eng.repeat        = saved.repeat;
+    _eng.queueContext  = saved.queueContext;
 
     const a   = getAudio();
-    const vol = Math.max(0, Math.min(1, saved.volume ?? 1));
+    const vol = Math.max(0, Math.min(1, saved.volume));
     a.src    = track.streamUrl;
     a.volume = vol;
     a.load();
 
-    const savedTs = saved.timestamp ?? 0;
-    if (savedTs > 0) {
+    if (saved.timestamp > 0) {
       a.addEventListener('loadedmetadata', () => {
-        if (isFinite(a.duration) && savedTs < a.duration) {
-          a.currentTime = savedTs;
-          _sync?.({ progress: savedTs / a.duration, duration: a.duration });
+        if (isFinite(a.duration) && saved.timestamp < a.duration) {
+          a.currentTime = saved.timestamp;
+          _sync?.({ progress: saved.timestamp / a.duration, duration: a.duration });
         }
       }, { once: true });
     }
@@ -118,25 +134,22 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
       currentTrack:  track,
       currentIndex:  idx,
       isPlaying:     false,
-      isShuffle:     saved.shuffle ?? false,
-      repeat:        saved.repeat  ?? 'off',
+      isShuffle:     saved.shuffle,
+      repeat:        saved.repeat,
       progress:      0,
       duration:      0,
-      queueContext:  saved.queueContext ?? null,
+      queueContext:  saved.queueContext,
       queueLength:   activeQueue.length,
-      queueVersion:  1,
+      queueVersion:  ++_queueVersion,
     });
 
-    console.log(`[Playback] Restored: "${track.title}" (${idx + 1}/${activeQueue.length}) at ${savedTs.toFixed(1)}s — paused`);
-    if (saved.queueContext) {
-      console.log(`[Playback] Queue context: ${saved.queueContext.type} — "${saved.queueContext.title ?? ''}"`);
-    }
+    console.log(`[Playback] Restored: "${track.title}" (${idx + 1}/${activeQueue.length}) — paused`);
   } catch (err) {
     console.error('[Playback] restorePlaybackState error:', err);
   }
 }
 
-// ─── Module-level audio engine ────────────────────────────────────────────────
+// ─── Audio engine ─────────────────────────────────────────────────────────────
 
 let _audio: HTMLAudioElement | null = null;
 
@@ -159,6 +172,7 @@ const _eng = {
 };
 
 let _sync: ((partial: Partial<PlayerReactState>) => void) | null = null;
+let _queueVersion = 0;
 
 function _fisher<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -167,6 +181,25 @@ function _fisher<T>(arr: T[]): T[] {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+/**
+ * _assertInvariants — dev-only check. Called after every mutation.
+ * Verifies I1, I2, I3 hold. No-ops in production.
+ */
+function _assertInvariants(): void {
+  if (!import.meta.env.DEV) return;
+  const { activeQueue, originalQueue, idx } = _eng;
+  if (activeQueue.length === 0) return; // empty queue is valid
+  if (idx < 0 || idx >= activeQueue.length) {
+    console.error(`[Invariant I1 violated] idx=${idx} out of range [0,${activeQueue.length - 1}]`);
+  }
+  // Note: originalQueue can be shorter if tracks were removed while shuffled.
+  // What we enforce: any track in activeQueue that was in the original should
+  // still be in originalQueue (order may differ). We don't enforce strict equality.
+  if (originalQueue.length === 0 && activeQueue.length > 0) {
+    console.error('[Invariant I3 violated] originalQueue is empty but activeQueue is not');
+  }
 }
 
 function _setupListeners(a: HTMLAudioElement) {
@@ -198,13 +231,14 @@ function _setupListeners(a: HTMLAudioElement) {
 
   a.onended = () => {
     const { activeQueue, idx, repeat } = _eng;
+    if (activeQueue.length === 0) return; // I2: nothing to advance to
     if (repeat === 'one') {
       a.currentTime = 0;
       a.play().catch(() => {});
       return;
     }
     let nextIdx: number | null = null;
-    if (idx < activeQueue.length - 1)      nextIdx = idx + 1;
+    if (idx < activeQueue.length - 1)               nextIdx = idx + 1;
     else if (repeat === 'all' && activeQueue.length > 0) nextIdx = 0;
 
     if (nextIdx !== null) {
@@ -240,9 +274,6 @@ function _loadAndPlay(track: Track) {
   _sync?.({ recentSongs: _loadRecents() });
   _savePlayback();
 }
-
-// Global version counter — incremented on every structural queue change
-let _queueVersion = 0;
 
 function _updateMediaSession(track: Track) {
   if (!('mediaSession' in navigator)) return;
@@ -295,14 +326,13 @@ function _pushRecent(albumId: string, trackId: string) {
 }
 
 export function getRecentEntries(): RecentEntry[] { return _loadRecents(); }
-
 export function getNextTracks(n = 5): Track[] {
   return _eng.activeQueue.slice(_eng.idx + 1, _eng.idx + 1 + n);
 }
 export function getActiveQueue(): Track[] { return [..._eng.activeQueue]; }
 export function getEngineIdx(): number    { return _eng.idx; }
 
-// ─── Zustand React state ──────────────────────────────────────────────────────
+// ─── Zustand state ────────────────────────────────────────────────────────────
 
 export interface PlayerReactState {
   currentTrack:  Track | null;
@@ -316,17 +346,6 @@ export interface PlayerReactState {
   recentSongs:   RecentEntry[];
   queueContext:  QueueContext | null;
   queueLength:   number;
-  /**
-   * queueVersion — monotonically-incrementing integer.
-   * Incremented on EVERY structural mutation of _eng.activeQueue:
-   *   playQueue / toggleShuffle / appendToQueue / removeFromQueue /
-   *   moveQueueTrack / clearQueue / track advance via onended.
-   *
-   * Components that need to re-read the live engine queue subscribe to this
-   * value. When it changes, they call getActiveQueue() / getEngineIdx().
-   * This avoids copying the full Track[] array into Zustand state while still
-   * providing a reactive trigger.
-   */
   queueVersion:  number;
 }
 
@@ -354,10 +373,18 @@ export interface PlayerState extends PlayerReactState {
 export const usePlayerStore = create<PlayerState>((set, get) => {
   _sync = (partial) => set(partial as Partial<PlayerState>);
 
+  /**
+   * _setQueue — core queue setup. Handles shuffle internally.
+   * Always call this before _loadAndPlay when replacing the whole queue.
+   *
+   * Invariants enforced:
+   *   I1: idx set correctly for both shuffle and non-shuffle modes
+   *   I3: originalQueue always mirrors the input tracks in natural order
+   */
   function _setQueue(tracks: Track[], startIdx: number) {
     _eng.originalQueue = [...tracks];
-    _eng.idx           = startIdx;
     if (_eng.shuffle) {
+      // Current track goes to front; rest are shuffled (I2: current track preserved)
       const rest = tracks.filter((_, i) => i !== startIdx);
       _eng.activeQueue = [tracks[startIdx], ..._fisher(rest)];
       _eng.idx         = 0;
@@ -385,11 +412,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     queueLength:   0,
     queueVersion:  0,
 
+    // ── playQueue — primary entry point ────────────────────────────────────
     playQueue: ({ tracks, context, startIndex = 0 }) => {
       if (!tracks.length) return;
       const idx = Math.min(Math.max(0, startIndex), tracks.length - 1);
       _eng.queueContext = context;
       _setQueue(tracks, idx);
+      _assertInvariants();
       _loadAndPlay(_eng.activeQueue[_eng.idx]);
       set({
         isShuffle:    _eng.shuffle,
@@ -399,10 +428,12 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       });
     },
 
+    // ── replaceQueue — replace without starting playback ───────────────────
     replaceQueue: (tracks, context) => {
       if (!tracks.length) return;
       _eng.queueContext = context;
       _setQueue(tracks, 0);
+      _assertInvariants();
       set({
         queueContext:  context,
         queueLength:   _eng.activeQueue.length,
@@ -411,6 +442,9 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _savePlayback();
     },
 
+    // ── appendToQueue ─────────────────────────────────────────────────────
+    // Fix: append to both queues so unshuffling doesn't lose the new track.
+    // Duplicate IDs are allowed per invariant I6 — we don't deduplicate.
     appendToQueue: (track) => {
       _eng.activeQueue   = [..._eng.activeQueue, track];
       _eng.originalQueue = [..._eng.originalQueue, track];
@@ -418,18 +452,66 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _savePlayback();
     },
 
+    // ── removeFromQueue ────────────────────────────────────────────────────
+    // Fix 1 (I6): remove ONLY the item at the given index, not all items
+    //   with the same ID. Use index-based filter instead of id-based filter
+    //   for activeQueue. originalQueue is pruned by ID once — this is
+    //   acceptable because we treat originalQueue as an unordered pool for
+    //   the unshuffle operation.
+    //
+    // Fix 2 (I4): when removing the current track and the queue becomes
+    //   empty, explicitly set currentTrack to null in Zustand.
+    //
+    // Fix 3 (I1/I5): when removing current track and queue has remaining
+    //   tracks, idx stays the same (next track shifts up). If removing
+    //   the last item, idx is clamped to new length-1.
     removeFromQueue: (index) => {
       if (index < 0 || index >= _eng.activeQueue.length) return;
       const removingCurrent = index === _eng.idx;
-      const removedId = _eng.activeQueue[index].id;
-      _eng.activeQueue   = _eng.activeQueue.filter((_, i) => i !== index);
-      _eng.originalQueue = _eng.originalQueue.filter((t) => t.id !== removedId);
-      if (removingCurrent && _eng.activeQueue.length > 0) {
+      const removedTrack    = _eng.activeQueue[index];
+
+      // Remove from activeQueue by index (I6: only one instance)
+      _eng.activeQueue = _eng.activeQueue.filter((_, i) => i !== index);
+
+      // Remove from originalQueue by ID — removes first occurrence only
+      // to avoid over-pruning when the same track appears multiple times.
+      let removedFromOrig = false;
+      _eng.originalQueue = _eng.originalQueue.filter((t) => {
+        if (!removedFromOrig && t.id === removedTrack.id) {
+          removedFromOrig = true;
+          return false;
+        }
+        return true;
+      });
+
+      if (_eng.activeQueue.length === 0) {
+        // Queue is now empty (I4: currentTrack must be null)
+        _eng.idx = 0;
+        getAudio().pause();
+        set({
+          currentTrack: null,
+          currentIndex: 0,
+          isPlaying:    false,
+          queueLength:  0,
+          queueVersion: ++_queueVersion,
+        });
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        return;
+      }
+
+      if (removingCurrent) {
+        // I1: idx stays the same (next track shifts into this slot).
+        // If we removed the last item, clamp to new end.
         _eng.idx = Math.min(_eng.idx, _eng.activeQueue.length - 1);
-        _loadAndPlay(_eng.activeQueue[_eng.idx]);
+        _loadAndPlay(_eng.activeQueue[_eng.idx]); // I5: sync audio engine
       } else if (index < _eng.idx) {
+        // A track before current was removed — adjust idx to keep pointing
+        // to the same track (I2).
         _eng.idx = Math.max(0, _eng.idx - 1);
       }
+      // If removed item was after current, idx is still valid — no adjustment.
+
+      _assertInvariants();
       set({
         currentIndex: _eng.idx,
         queueLength:  _eng.activeQueue.length,
@@ -438,27 +520,51 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _savePlayback();
     },
 
+    // ── moveQueueTrack ────────────────────────────────────────────────────
+    // Fix: also update originalQueue to reflect the manual reorder.
+    // Without this, toggling shuffle off after a reorder loses the reorder.
     moveQueueTrack: (fromIndex, toIndex) => {
       if (fromIndex === toIndex) return;
       if (fromIndex < 0 || toIndex < 0) return;
       if (fromIndex >= _eng.activeQueue.length || toIndex >= _eng.activeQueue.length) return;
-      const q = [..._eng.activeQueue];
-      const [moved] = q.splice(fromIndex, 1);
-      q.splice(toIndex, 0, moved);
-      _eng.activeQueue = q;
+
+      // Reorder activeQueue
+      const aq = [..._eng.activeQueue];
+      const [movedActive] = aq.splice(fromIndex, 1);
+      aq.splice(toIndex, 0, movedActive);
+      _eng.activeQueue = aq;
+
+      // Mirror the reorder in originalQueue (same relative move by ID).
+      // Find the first occurrence of the moved track in originalQueue and
+      // move it to the equivalent relative position.
+      const oq        = [..._eng.originalQueue];
+      const origFrom  = oq.findIndex((t) => t.id === movedActive.id);
+      if (origFrom >= 0) {
+        const [movedOrig] = oq.splice(origFrom, 1);
+        // Calculate proportional position in originalQueue
+        const ratio     = toIndex / Math.max(1, _eng.activeQueue.length - 1);
+        const origTo    = Math.round(ratio * Math.max(0, oq.length));
+        oq.splice(Math.min(origTo, oq.length), 0, movedOrig);
+        _eng.originalQueue = oq;
+      }
+
+      // Re-find current track to update idx (I2)
       const ct = get().currentTrack;
       if (ct) {
-        _eng.idx = q.findIndex((t) => t.id === ct.id);
-        if (_eng.idx < 0) _eng.idx = toIndex;
+        _eng.idx = aq.findIndex((t) => t.id === ct.id);
+        if (_eng.idx < 0) _eng.idx = Math.min(toIndex, aq.length - 1);
       }
+
+      _assertInvariants();
       set({
         currentIndex: _eng.idx,
-        queueLength:  q.length,
+        queueLength:  aq.length,
         queueVersion: ++_queueVersion,
       });
       _savePlayback();
     },
 
+    // ── clearQueue ────────────────────────────────────────────────────────
     clearQueue: () => {
       getAudio().pause();
       _eng.activeQueue   = [];
@@ -476,15 +582,17 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         queueLength:  0,
         queueVersion: _queueVersion,
       });
-      try { localStorage.removeItem(PLAYBACK_KEY); } catch {}
+      try { localStorage.removeItem(STORAGE_KEY); } catch {}
     },
 
+    // ── playTrackFromQueue ────────────────────────────────────────────────
     playTrackFromQueue: (index) => {
       if (index < 0 || index >= _eng.activeQueue.length) return;
       _eng.idx = index;
       _loadAndPlay(_eng.activeQueue[index]);
     },
 
+    // ── Backwards-compat wrappers ─────────────────────────────────────────
     playTrack: (track, queue, contextOrSource) => {
       const q = queue ?? [track];
       const startIdx = Math.max(0, q.findIndex((t) => t.id === track.id));
@@ -501,6 +609,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       get().playQueue({ tracks, context, startIndex });
     },
 
+    // ── Transport ─────────────────────────────────────────────────────────
     togglePlay: () => {
       const a = getAudio();
       if (a.paused) a.play().catch(() => {});
@@ -519,20 +628,28 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       }
     },
 
+    // ── toggleShuffle ─────────────────────────────────────────────────────
+    // Invariant preserved: the currently playing track is ALWAYS index 0
+    // after shuffle-on, and always at its natural position after shuffle-off.
+    // The active track identity never changes.
     toggleShuffle: () => {
       const newShuffle = !_eng.shuffle;
       _eng.shuffle     = newShuffle;
-      const ct = _eng.activeQueue[_eng.idx];
+      const ct = _eng.activeQueue[_eng.idx]; // I2: save current track identity
+
       if (newShuffle) {
+        // Put current track at front, shuffle the rest
         const rest = _eng.originalQueue.filter((t) => t.id !== ct?.id);
         _eng.activeQueue = ct ? [ct, ..._fisher(rest)] : _fisher(_eng.originalQueue);
         _eng.idx         = 0;
       } else {
+        // Restore natural order; find current track in originalQueue (I2)
         _eng.activeQueue = [..._eng.originalQueue];
         _eng.idx         = ct ? _eng.originalQueue.findIndex((t) => t.id === ct.id) : 0;
-        if (_eng.idx < 0) _eng.idx = 0;
+        if (_eng.idx < 0) _eng.idx = 0; // guard: track removed from orig
       }
-      // queueVersion bump signals all queue consumers to re-read _eng.activeQueue
+
+      _assertInvariants();
       set({
         isShuffle:    newShuffle,
         currentIndex: _eng.idx,

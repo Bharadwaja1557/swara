@@ -2,156 +2,12 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
-import { useUserLibraryStore } from '@/store/useUserLibraryStore';
-import { useLibraryStore } from '@/store/libraryStore';
 import { trackActions } from '@/lib/trackActions';
 import { formatDuration } from '@/utils/greeting';
 import { slugify } from '@/utils/library';
-import BottomSheet from '@/components/ui/BottomSheet';
-import ArtistPickerSheet from '@/components/ui/ArtistPickerSheet';
+import TrackMenuSheet from '@/components/ui/TrackMenuSheet';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
-
-// ─── Track menu (bottom sheet) ────────────────────────────────────────────────
-interface TrackMenuProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-const TrackMenu = ({ isOpen, onClose }: TrackMenuProps) => {
-  const { currentTrack } = usePlayerStore();
-  const liked  = useLikedStore((s) => currentTrack ? s.isLiked(currentTrack.id) : false);
-  const { albums } = useLibraryStore();
-  const navigate = useNavigate();
-
-  const [artistPickerOpen, setArtistPickerOpen] = useState(false);
-
-  if (!currentTrack) return null;
-
-  const albumFull = albums.find((a) => a.id === currentTrack.albumId);
-  const inLib     = useUserLibraryStore.getState().hasTrack(
-    currentTrack.albumId, currentTrack.id
-  );
-
-  const hasMultipleArtists =
-    currentTrack.artists.length > 1 ||
-    (currentTrack.composer && currentTrack.composer !== currentTrack.artists[0]);
-
-  const MenuItem = ({ icon, label, onClick, accent }: {
-    icon: React.ReactNode; label: string; onClick: () => void; accent?: boolean;
-  }) => (
-    <button
-      type="button"
-      onClick={onClick}
-      className={[
-        'flex items-center gap-4 w-full px-5 py-3.5',
-        'text-[0.9rem] font-medium text-left',
-        'hover:bg-white/5 active:bg-white/10 transition-colors duration-150',
-        accent ? 'text-swara-accent' : 'text-swara-text',
-      ].join(' ')}
-    >
-      <span className="w-5 flex items-center justify-center flex-shrink-0 text-swara-muted">
-        {icon}
-      </span>
-      {label}
-    </button>
-  );
-
-  const handleViewArtists = () => {
-    if (hasMultipleArtists) {
-      setArtistPickerOpen(true);
-    } else {
-      onClose();
-      usePlayerStore.getState().setExpanded(false);
-      const id = slugify(currentTrack.artists[0] ?? currentTrack.artist);
-      setTimeout(() => navigate(`/artist/${id}`), 300);
-    }
-  };
-
-  return (
-    <>
-      <BottomSheet isOpen={isOpen} onClose={onClose}>
-        {/* Song + album name header */}
-        <div className="px-5 pt-1 pb-3 border-b border-swara-border">
-          <p className="text-[0.95rem] font-semibold text-swara-text truncate">{currentTrack.title}</p>
-          <p className="text-[0.78rem] text-swara-muted mt-0.5 truncate">{currentTrack.album}</p>
-        </div>
-
-        {/* Menu items */}
-        <div className="py-1">
-          <MenuItem
-            icon={
-              <svg viewBox="0 0 24 24" width="18" height="18"
-                fill={liked ? 'currentColor' : 'none'}
-                stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-              </svg>
-            }
-            label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-            accent={liked}
-            onClick={() => { trackActions.toggleLike(currentTrack); }}
-          />
-
-          <MenuItem
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>}
-            label="Add to Playlist"
-            onClick={() => { onClose(); alert('Coming Soon'); }}
-          />
-
-          <MenuItem
-            icon={
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
-              </svg>
-            }
-            label={inLib ? 'Remove from Library' : 'Add to Library'}
-            onClick={() => {
-              if (!albumFull) return;
-              trackActions.toggleTrackLibrary(currentTrack, albumFull);
-            }}
-          />
-
-          <div className="mx-5 my-1 h-px bg-swara-border" />
-
-          <MenuItem
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/></svg>}
-            label="Stash this Song"
-            onClick={() => { onClose(); alert('Coming Soon'); }}
-          />
-
-          <MenuItem
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg>}
-            label="Go to Album"
-            onClick={() => {
-              onClose();
-              usePlayerStore.getState().setExpanded(false);
-              setTimeout(() => navigate(`/album/${currentTrack.albumId}`), 300);
-            }}
-          />
-
-          <MenuItem
-            icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>}
-            label="View Artists"
-            onClick={handleViewArtists}
-          />
-        </div>
-      </BottomSheet>
-
-      {/* Artist picker sub-sheet */}
-      <ArtistPickerSheet
-        isOpen={artistPickerOpen}
-        onClose={() => setArtistPickerOpen(false)}
-        onNavigate={() => {
-          setArtistPickerOpen(false);
-          onClose();
-          usePlayerStore.getState().setExpanded(false);
-        }}
-        singers={currentTrack.artists}
-        composer={currentTrack.composer || undefined}
-      />
-    </>
-  );
-};
 
 // ─── FullscreenPlayer ─────────────────────────────────────────────────────────
 
@@ -492,8 +348,16 @@ const FullscreenPlayer = () => {
         </div>
       </div>
 
-      {/* 3-dot menu */}
-      <TrackMenu isOpen={menuOpen} onClose={() => setMenuOpen(false)} />
+      {/* Track menu — centralized TrackMenuSheet with player context */}
+      {currentTrack && (
+        <TrackMenuSheet
+          track={currentTrack}
+          isOpen={menuOpen}
+          onClose={() => setMenuOpen(false)}
+          context="player"
+          onNavigate={() => setExpanded(false)}
+        />
+      )}
     </>
   );
 };
