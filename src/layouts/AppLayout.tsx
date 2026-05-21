@@ -3,37 +3,42 @@
  *
  * STARTUP SEQUENCE (strictly ordered, every step awaited):
  *
- *   1. initialize()      — restore Supabase auth session
- *   2a. load()           — fetch library stubs (parallel with 2b)
- *   2b. fetchProfile()   — fetch user profile (parallel with 2a)
- *   3. loadAlbumTracks() — load ALL album track lists in parallel
- *                          (libraryStore uses functional set() — no race)
- *   4. restorePlayback() — resolve saved queue IDs against trackMap, restore
- *                          engine state, DO NOT autoplay
- *   5. syncFromCloud()   — fetch liked IDs from Supabase, resolve via trackMap
- *                          (O(1)), REPLACE local liked state
+ *   1. initialize()         — restore Supabase auth session
+ *   2a. load()              — fetch library stubs (parallel with 2b)
+ *   2b. fetchProfile()      — fetch user profile (parallel with 2a)
+ *   3. loadAlbumTracks()    — load ALL album track lists in parallel
+ *                             (libraryStore uses functional set() — no race)
+ *   4. restorePlayback()    — resolve saved queue IDs against trackMap, restore
+ *                             engine state, DO NOT autoplay
+ *   5. liked.syncFromCloud()    — fetch liked IDs from Supabase, resolve via trackMap
+ *                                 (O(1)), REPLACE local liked state
+ *   6. library.syncFromCloud()  — fetch user library entries from Supabase,
+ *                                 REPLACE local library state
  *
- * Steps 3–5 run only once per session (syncDoneRef guard) and only after
+ * Steps 3–6 run only once per session (syncDoneRef guard) and only after
  * steps 1 + 2a are confirmed complete (isAuth && loaded).
  *
  * Step 2b (profile) is initiated in the same effect as 2a (parallel) since
  * it has no dependency on the library.
+ *
+ * Steps 5 and 6 run in parallel — neither depends on the other.
  */
 import { Outlet }      from 'react-router-dom';
 import { useEffect, useRef } from 'react';
-import { useLibraryStore }   from '@/store/libraryStore';
-import { useLikedStore }     from '@/store/likedStore';
-import { useAuthStore }      from '@/store/useAuthStore';
-import { useProfileStore }   from '@/store/useProfileStore';
-import { useIsDesktop }      from '@/hooks/useIsDesktop';
+import { useLibraryStore }      from '@/store/libraryStore';
+import { useLikedStore }        from '@/store/likedStore';
+import { useUserLibraryStore }  from '@/store/useUserLibraryStore';
+import { useAuthStore }         from '@/store/useAuthStore';
+import { useProfileStore }      from '@/store/useProfileStore';
+import { useIsDesktop }         from '@/hooks/useIsDesktop';
 import { restorePlaybackState } from '@/store/playerStore';
-import { BottomNav }         from '@/components/nav/BottomNav';
-import MiniPlayer            from '@/components/player/MiniPlayer';
-import FullscreenPlayer      from '@/components/player/FullscreenPlayer';
-import DesktopLayout         from '@/layouts/DesktopLayout';
-import LoginModal            from '@/components/auth/LoginModal';
-import { ScrollRestorer }    from '@/components/ScrollRestorer';
-import { ToastProvider }     from '@/components/ui/ToastProvider';
+import { BottomNav }            from '@/components/nav/BottomNav';
+import MiniPlayer               from '@/components/player/MiniPlayer';
+import FullscreenPlayer         from '@/components/player/FullscreenPlayer';
+import DesktopLayout            from '@/layouts/DesktopLayout';
+import LoginModal               from '@/components/auth/LoginModal';
+import { ScrollRestorer }       from '@/components/ScrollRestorer';
+import { ToastProvider }        from '@/components/ui/ToastProvider';
 
 // ── Mobile shell ──────────────────────────────────────────────────────────────
 const MobileLayout = () => (
@@ -68,15 +73,15 @@ const AuthSplash = () => (
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 const AppLayout = () => {
-  const load           = useLibraryStore((s) => s.load);
-  const loaded         = useLibraryStore((s) => s.loaded);
-  const isDesktop      = useIsDesktop();
-  const initialize     = useAuthStore((s) => s.initialize);
-  const initialized    = useAuthStore((s) => s.initialized);
-  const isAuth         = useAuthStore((s) => s.isAuthenticated);
-  const fetchProfile   = useProfileStore((s) => s.fetchProfile);
+  const load              = useLibraryStore((s) => s.load);
+  const loaded            = useLibraryStore((s) => s.loaded);
+  const isDesktop         = useIsDesktop();
+  const initialize        = useAuthStore((s) => s.initialize);
+  const initialized       = useAuthStore((s) => s.initialized);
+  const isAuth            = useAuthStore((s) => s.isAuthenticated);
+  const fetchProfile      = useProfileStore((s) => s.fetchProfile);
 
-  // Prevents the async steps 3–5 from running more than once per session.
+  // Prevents the async steps 3–6 from running more than once per session.
   const syncDoneRef = useRef(false);
 
   // ── Step 1: restore auth session ─────────────────────────────────────────
@@ -92,7 +97,7 @@ const AppLayout = () => {
     fetchProfile();   // 2b: profile from Supabase (independent of library)
   }, [isAuth, load, fetchProfile]);
 
-  // ── Steps 3–5: track loading + playback restore + liked sync ─────────────
+  // ── Steps 3–6: track loading + playback restore + cloud syncs ─────────────
   // Only runs when BOTH auth AND library stubs are confirmed ready.
   // syncDoneRef ensures this is a one-shot operation per session.
   useEffect(() => {
@@ -130,10 +135,14 @@ const AppLayout = () => {
       console.log('[Startup] Restoring playback session...');
       restorePlaybackState(trackMap);
 
-      // ── Step 5: sync liked songs from Supabase → Zustand ──────────────
-      // Uses trackMap.get() (O(1)) for ID resolution. Replaces local cache.
-      console.log('[Startup] Syncing liked songs from cloud...');
-      await useLikedStore.getState().syncFromCloud();
+      // ── Steps 5 + 6: sync liked songs AND user library in parallel ─────
+      // Both are independent — neither depends on the other.
+      // Both use cloud-authoritative replace strategy.
+      console.log('[Startup] Syncing liked songs and user library from cloud...');
+      await Promise.all([
+        useLikedStore.getState().syncFromCloud(),
+        useUserLibraryStore.getState().syncFromCloud(),
+      ]);
 
       console.log('[Startup] ══════════════════════════════════════════════');
       console.log('[Startup] Startup sequence complete ✓');

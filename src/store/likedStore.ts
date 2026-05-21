@@ -41,6 +41,11 @@ interface LikedState {
    * Caller (AppLayout) guarantees library is fully loaded before this runs.
    */
   syncFromCloud: () => Promise<void>;
+  /**
+   * Clear all user-specific liked state on logout.
+   * Clears both Zustand state and the localStorage cache.
+   */
+  reset: () => void;
 }
 
 export const useLikedStore = create<LikedState>((set, get) => ({
@@ -134,5 +139,11 @@ export const useLikedStore = create<LikedState>((set, get) => ({
     } finally {
       set({ isSyncing: false });
     }
+  },
+
+  reset: () => {
+    writeCache({});
+    set({ liked: {}, isSyncing: false, hydrated: false });
+    console.log('[Liked] reset on logout ✓');
   },
 }));
