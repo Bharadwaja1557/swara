@@ -90,10 +90,8 @@ const LibraryPage = () => {
   // ── Store subscriptions ───────────────────────────────────────────────────
 
   const { albumMap, artistMap, trackMap } = useLibraryStore();
-  // const { entries }    = useUserLibraryStore();
-  const entries = useUserLibraryStore((s) => s.entries);
-  // const { playlists }  = usePlaylistStore();
-  const playlists = usePlaylistStore((s) => s.playlists);
+  const { entries }    = useUserLibraryStore();
+  const { playlists }  = usePlaylistStore();
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
   const likedCount     = getLikedTracks().length;
 

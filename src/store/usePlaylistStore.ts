@@ -103,15 +103,54 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   createPlaylist: async (title, description) => {
     console.log('[Playlists] createPlaylist:', title);
 
-    const { PlaylistRepository } = await import('@/repositories/playlists/PlaylistRepository');
-    const created = await PlaylistRepository.createPlaylist(title, description);
-    if (!created) return null;
+    // ── Optimistic local update ───────────────────────────────────────────
+    // We cannot use a client-generated UUID as the permanent ID because
+    // Supabase generates the real UUID. Strategy:
+    //   1. Add a temporary entry immediately so Library updates instantly
+    //   2. Replace it with the server entry on success
+    //   3. On server failure, keep the local entry and log — the user's
+    //      action is never silently discarded
+    const tempId = `temp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const tempPlaylist: Playlist = {
+      id:         tempId,
+      title:      title.trim(),
+      description: description?.trim(),
+      isPublic:   false,
+      trackCount: 0,
+      createdAt:  new Date().toISOString(),
+      updatedAt:  new Date().toISOString(),
+      trackIds:   [],
+    };
 
-    const newPlaylist: Playlist = { ...created, trackIds: [] };
-    const playlists = [newPlaylist, ...get().playlists];
-    writeCache(playlists);
-    set({ playlists });
-    return newPlaylist;
+    // Immediately update Zustand and localStorage — Library page re-renders now
+    const withTemp = [tempPlaylist, ...get().playlists];
+    writeCache(withTemp);
+    set({ playlists: withTemp });
+
+    // ── Cloud write ────────────────────────────────────────────────────────
+    try {
+      const { PlaylistRepository } = await import('@/repositories/playlists/PlaylistRepository');
+      const created = await PlaylistRepository.createPlaylist(title, description);
+
+      if (created) {
+        // Replace temp entry with the real server entry (real UUID)
+        const realPlaylist: Playlist = { ...created, trackIds: [] };
+        const reconciled = get().playlists.map((p) => p.id === tempId ? realPlaylist : p);
+        writeCache(reconciled);
+        set({ playlists: reconciled });
+        console.log('[Playlists] createPlaylist: server confirmed, tempId replaced with', created.id);
+        return realPlaylist;
+      } else {
+        // Server failed but we keep the local entry — it will be a "pending" playlist
+        // that syncs properly when syncFromCloud next runs (or on next app load).
+        console.warn('[Playlists] createPlaylist: server returned null — keeping local entry with tempId');
+        return tempPlaylist;
+      }
+    } catch (err) {
+      console.error('[Playlists] createPlaylist cloud write failed:', err);
+      // Keep local entry — do not remove it
+      return tempPlaylist;
+    }
   },
 
   renamePlaylist: (id, title) => {
