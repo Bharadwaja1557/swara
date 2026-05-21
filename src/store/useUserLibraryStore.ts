@@ -151,10 +151,12 @@ export const useUserLibraryStore = create<UserLibraryState>((set, get) => ({
     // Optimistic local update done — cloud write is fire-and-forget
     const updatedEntry = entries.find((e) => e.albumId === albumId);
     if (updatedEntry) {
+      console.log('[UserLibrary] addTrack: firing cloud write for', albumId);
       import('@/repositories/userLibrary/UserLibraryRepository')
         .then(({ UserLibraryRepository }) =>
           UserLibraryRepository.addTrack(albumId, updatedEntry.trackIds)
-        ).catch(() => {});
+        )
+        .catch((err) => console.error('[UserLibrary] addTrack cloud write failed:', err));
     }
   },
 
@@ -169,10 +171,12 @@ export const useUserLibraryStore = create<UserLibraryState>((set, get) => ({
 
     // Fire-and-forget: pass remaining track IDs (empty = remove album row)
     const remaining = entries.find((e) => e.albumId === albumId)?.trackIds ?? [];
+    console.log('[UserLibrary] removeTrack: firing cloud write for', albumId, '| remaining:', remaining.length);
     import('@/repositories/userLibrary/UserLibraryRepository')
       .then(({ UserLibraryRepository }) =>
         UserLibraryRepository.removeTrack(albumId, remaining)
-      ).catch(() => {});
+      )
+      .catch((err) => console.error('[UserLibrary] removeTrack cloud write failed:', err));
   },
 
   addAlbum: (albumId, allTrackIds) => {
@@ -188,10 +192,12 @@ export const useUserLibraryStore = create<UserLibraryState>((set, get) => ({
     set({ entries });
 
     // Fire-and-forget
+    console.log('[UserLibrary] addAlbum: firing cloud write for', albumId, '| tracks:', allTrackIds.length);
     import('@/repositories/userLibrary/UserLibraryRepository')
       .then(({ UserLibraryRepository }) =>
         UserLibraryRepository.upsertAlbum(albumId, allTrackIds)
-      ).catch(() => {});
+      )
+      .catch((err) => console.error('[UserLibrary] addAlbum cloud write failed:', err));
   },
 
   removeAlbum: (albumId) => {
@@ -200,10 +206,12 @@ export const useUserLibraryStore = create<UserLibraryState>((set, get) => ({
     set({ entries });
 
     // Fire-and-forget
+    console.log('[UserLibrary] removeAlbum: firing cloud write for', albumId);
     import('@/repositories/userLibrary/UserLibraryRepository')
       .then(({ UserLibraryRepository }) =>
         UserLibraryRepository.removeAlbum(albumId)
-      ).catch(() => {});
+      )
+      .catch((err) => console.error('[UserLibrary] removeAlbum cloud write failed:', err));
   },
 
   hasAlbum:  (albumId) => get().entries.some((e) => e.albumId === albumId),
