@@ -8,6 +8,8 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
+import { useLibraryStore } from '@/store/libraryStore';
+import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { trackActions } from '@/lib/trackActions';
 import { formatDuration } from '@/utils/greeting';
 import { slugify } from '@/utils/library';
@@ -23,6 +25,8 @@ const DesktopNowPlaying = () => {
     seekTo, setExpanded,
   } = usePlayerStore();
   const { isLiked } = useLikedStore();
+  const { albumMap } = useLibraryStore();
+  const hasAlbum = useUserLibraryStore((s) => s.hasAlbum);
   const navigate = useNavigate();
 
   const [coverErr, setCoverErr] = useState(false);
@@ -39,9 +43,11 @@ const DesktopNowPlaying = () => {
 
   if (!currentTrack) return null;
 
-  const liked      = isLiked(currentTrack.id);
-  const coverSrc   = coverErr || !currentTrack.coverUrl ? PH : currentTrack.coverUrl;
-  const nextTracks = getNextTracks(6);
+  const liked        = isLiked(currentTrack.id);
+  const coverSrc     = coverErr || !currentTrack.coverUrl ? PH : currentTrack.coverUrl;
+  const nextTracks   = getNextTracks(6);
+  const currentAlbum = albumMap.get(currentTrack.albumId);
+  const inLibrary    = currentAlbum ? hasAlbum(currentAlbum.id) : false;
 
   const RepeatIcon = () => (
     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
@@ -123,25 +129,69 @@ const DesktopNowPlaying = () => {
             {currentTrack.album}
           </p>
 
-          {/* Track title + like */}
-          <div className="flex items-start justify-between gap-4 mb-6">
-            <h2 className="text-[1.75rem] font-bold text-swara-text tracking-tight leading-tight font-display flex-1">
-              {currentTrack.title}
-            </h2>
+          {/* Track title — full width, no inline action button */}
+          <h2 className="text-[1.75rem] font-bold text-swara-text tracking-tight leading-tight font-display mb-4">
+            {currentTrack.title}
+          </h2>
+
+          {/* Action row — Like + Add to Library.
+              Replaces the removed artist subtitle line.
+              Uses trackActions so toast fires on both actions. */}
+          <div className="flex items-center gap-2 mb-6">
+            {/* Like */}
             <button
               type="button"
               onClick={() => trackActions.toggleLike(currentTrack)}
               className={[
-                'w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 mt-1 transition-colors duration-200',
-                liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted',
+                'flex items-center gap-2 h-8 px-3 rounded-full border text-[0.78rem] font-medium transition-all duration-200',
+                liked
+                  ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                  : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
               ].join(' ')}
               aria-label={liked ? 'Unlike' : 'Like'}
             >
-              <svg viewBox="0 0 24 24" width="22" height="22"
+              <svg viewBox="0 0 24 24" width="14" height="14"
                 fill={liked ? 'currentColor' : 'none'}
-                stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                stroke="currentColor" strokeWidth="1.75"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
               </svg>
+              {liked ? 'Liked' : 'Like'}
+            </button>
+
+            {/* Add to Library */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!currentAlbum) return;
+                trackActions.toggleAlbumLibrary(currentAlbum, currentAlbum.tracks);
+              }}
+              disabled={!currentAlbum}
+              className={[
+                'flex items-center gap-2 h-8 px-3 rounded-full border text-[0.78rem] font-medium transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed',
+                inLibrary
+                  ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                  : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
+              ].join(' ')}
+              aria-label={inLibrary ? 'Remove album from library' : 'Add album to library'}
+              title={inLibrary ? 'Remove album from library' : 'Save album to library'}
+            >
+              {inLibrary ? (
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24" width="14" height="14" fill="none"
+                  stroke="currentColor" strokeWidth="1.75"
+                  strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                  <line x1="12" y1="8" x2="12" y2="14"/>
+                  <line x1="9" y1="11" x2="15" y2="11"/>
+                </svg>
+              )}
+              {inLibrary ? 'Saved' : 'Save'}
             </button>
           </div>
 

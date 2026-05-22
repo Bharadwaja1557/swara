@@ -1,20 +1,24 @@
 /**
  * ShuffleIcon — canonical reusable shuffle icon.
  *
- * Design: two curved crossing arrows.
- *   Upper arrow: bottom-left → top-right (complete curve + arrowhead)
- *   Lower arrow: top-left → bottom-right (split into two segments with a
- *     small visual gap at the crossing point — gives depth without looking
- *     broken. Gap is ~1.5 units wide centered at the intersection).
+ * Design: two straight crossing diagonals — clean, geometric, Spotify-like.
+ *
+ *   Upper arrow: (2,17) → (22,7)  — diagonal going up-right, arrowhead at right end.
+ *   Lower arrow: (2,7) → (22,17)  — diagonal going down-right, split into two
+ *     segments with a ~4-unit gap centred on the crossing point (12,12).
+ *     The gap makes the lower path appear to pass UNDER the upper arrow,
+ *     giving clear visual depth without breaking the shape.
+ *
+ * Straight L paths (no cubic curves) produce sharp, readable geometry
+ * at all sizes from 16px to 24px.
  *
  * Single source of truth used across:
  *   FullscreenPlayer, DesktopPlayer, DesktopNowPlaying, AlbumPage.
- * No props except size — colour and opacity are driven by parent via
- *   the `style` and className the caller wraps around it.
+ * Colour and opacity are controlled by the parent via className / style.
  */
 
 interface ShuffleIconProps {
-  /** Whether shuffle is active — controls opacity. Default false. */
+  /** Whether shuffle is active — drives opacity. Default false. */
   active?: boolean;
   /** Rendered size in px. Default 20. */
   size?: number;
@@ -33,17 +37,18 @@ const ShuffleIcon = ({ active = false, size = 20 }: ShuffleIconProps) => (
     style={{ opacity: active ? 1 : 0.45 }}
     aria-hidden="true"
   >
-    {/* ── Upper arrow: bottom-left → top-right ── */}
-    <path d="M2 18 C7 18 17 6 22 6" />
-    <polyline points="18 2 22 6 18 10" />
+    {/* Upper arrow — straight diagonal, bottom-left → top-right */}
+    <path d="M2 17 L22 7" />
+    <polyline points="17 4 22 7 17 10" />
 
-    {/* ── Lower arrow: top-left → bottom-right, gap at crossing ── */}
-    {/* First half — stops just before the crossing point */}
-    <path d="M2 6 C6 6 9 10 10.5 12" />
-    {/* Second half — resumes just after the crossing point */}
-    <path d="M13.5 13 C15.5 15.5 18 18 22 18" />
-    <polyline points="18 14 22 18 18 22" />
+    {/* Lower arrow — straight diagonal, top-left → bottom-right.
+        Split into two segments; gap centred on the (12,12) crossing point
+        so the lower path reads as passing beneath the upper arrow. */}
+    <path d="M2 7 L10 11" />
+    <path d="M14 13 L22 17" />
+    <polyline points="17 14 22 17 17 20" />
   </svg>
 );
 
 export default ShuffleIcon;
+

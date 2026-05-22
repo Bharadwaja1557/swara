@@ -150,8 +150,6 @@ const AlbumPage = () => {
   const [coverErr,   setCoverErr]   = useState(false);
   const [isShuffle,  setIsShuffle]  = useState(false);
 
-  const album = albums.find((a) => a.id === id);
-
   useEffect(() => {
     if (!id || !loaded) return;
     const a = albums.find((x) => x.id === id);
@@ -163,20 +161,29 @@ const AlbumPage = () => {
       .finally(() => setLoading(false));
   }, [id, loaded]); // eslint-disable-line
 
-  useEffect(() => { setCoverErr(false); }, [album?.id]);
+  // Dep is `id` (route param), not `album?.id`.
+  // Using album?.id required album to be resolved before this hook — which
+  // forced const album above the !loaded guard. Using id is semantically
+  // identical: the cover error resets whenever the route changes, which is
+  // exactly when the displayed album changes. Avoids the pre-guard lookup.
+  useEffect(() => { setCoverErr(false); }, [id]);
 
-  // ── Guard 1: library not bootstrapped ────────────────────────────────────
-  // On hard refresh / direct deep-link `loaded` is false and `albums` is []
-  // on the first render. Show a spinner — do NOT evaluate album (would always
-  // be undefined here, giving a false "not found" flash).
+  // ── Guard 1: library not bootstrapped ──────────────────────────────────────
+  // On hard refresh or direct deep-link, `loaded` is false and `albums` is []
+  // at the first render. Return a spinner — do NOT attempt albums.find() yet,
+  // it would always return undefined and the page would flash "not found"
+  // before any data arrives.
   if (!loaded) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
     </div>
   );
 
-  // ── Guard 2: album not in catalog ─────────────────────────────────────────
-  // Evaluated only after `loaded` is true — genuinely missing album.
+  // ── Guard 2: album existence ────────────────────────────────────────────────
+  // Only reached after loaded === true. If the album genuinely doesn't exist
+  // in the catalog it shows "not found". No race with hydration.
+  const album = albums.find((a) => a.id === id);
+
   if (!album) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
       <p className="text-swara-muted text-sm">Album not found</p>
