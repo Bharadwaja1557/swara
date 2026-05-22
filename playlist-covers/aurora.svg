@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#06081a"/>
+      <stop offset="100%" stop-color="#0a0d24"/>
+    </linearGradient>
+    <linearGradient id="r1" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#00e5cc" stop-opacity="0"/>
+      <stop offset="35%" stop-color="#00e5cc" stop-opacity="0.55"/>
+      <stop offset="65%" stop-color="#7b5ea7" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#7b5ea7" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="r2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#7b5ea7" stop-opacity="0"/>
+      <stop offset="40%" stop-color="#7b5ea7" stop-opacity="0.4"/>
+      <stop offset="70%" stop-color="#00c9b1" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#00c9b1" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="r3" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#c8a96e" stop-opacity="0"/>
+      <stop offset="45%" stop-color="#c8a96e" stop-opacity="0.3"/>
+      <stop offset="100%" stop-color="#c8a96e" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="blur1"><feGaussianBlur stdDeviation="18"/></filter>
+    <filter id="blur2"><feGaussianBlur stdDeviation="12"/></filter>
+  </defs>
+  <rect width="400" height="400" fill="url(#bg)"/>
+  <!-- Ribbon 1 — wide cyan sweep -->
+  <path d="M-40 310 Q80 240 200 258 Q320 276 440 210" fill="none" stroke="url(#r1)" stroke-width="52" filter="url(#blur1)" opacity="0.9"/>
+  <!-- Ribbon 2 — purple mid-band -->
+  <path d="M-40 268 Q100 200 220 222 Q340 244 440 180" fill="none" stroke="url(#r2)" stroke-width="38" filter="url(#blur1)" opacity="0.85"/>
+  <!-- Ribbon 3 — gold thin accent -->
+  <path d="M-40 340 Q120 280 240 296 Q360 312 440 260" fill="none" stroke="url(#r3)" stroke-width="20" filter="url(#blur2)" opacity="0.7"/>
+  <!-- Ribbon 4 — upper soft haze -->
+  <path d="M-40 200 Q100 140 220 165 Q340 190 440 130" fill="none" stroke="#3ecfbf" stroke-width="28" filter="url(#blur1)" opacity="0.2"/>
+  <!-- Stars -->
+  <circle cx="58"  cy="48"  r="1.5" fill="white" opacity="0.8"/>
+  <circle cx="130" cy="32"  r="1"   fill="white" opacity="0.6"/>
+  <circle cx="200" cy="55"  r="1.2" fill="white" opacity="0.7"/>
+  <circle cx="280" cy="28"  r="1"   fill="white" opacity="0.55"/>
+  <circle cx="340" cy="60"  r="1.5" fill="white" opacity="0.65"/>
+  <circle cx="380" cy="38"  r="0.9" fill="white" opacity="0.5"/>
+  <circle cx="22"  cy="90"  r="0.8" fill="white" opacity="0.45"/>
+  <circle cx="96"  cy="110" r="1"   fill="white" opacity="0.4"/>
+  <circle cx="310" cy="95"  r="0.9" fill="white" opacity="0.5"/>
+</svg>
