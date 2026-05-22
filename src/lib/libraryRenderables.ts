@@ -43,8 +43,8 @@ export interface LibraryRenderable {
   subtitle?:         string;
   tertiary?:         string;
   imageUrl?:         string;
-  /** Built-in cover variant key — for playlist built-in designs. */
-  coverVariant?:     string;
+  /** Built-in cover ID key for playlists — e.g. 'aurora'. */
+  coverId?:          string;
   coverShape:        'square' | 'circle';
   /** Render the music-note gradient placeholder when imageUrl is missing. */
   playlistFallback:  boolean;
@@ -58,12 +58,12 @@ export type LibrarySortMode = 'Recently Added' | 'A-Z' | 'Z-A';
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
-/** Resolve the best available cover URL for a playlist. */
+/** Resolve the best available thumbnail URL for a playlist. */
 export function playlistImageUrl(
   playlist: Playlist,
   trackMap: Map<string, Track>,
 ): string | undefined {
-  if (playlist.coverUrl) return playlist.coverUrl;
+  if (playlist.coverImageUrl) return playlist.coverImageUrl;
   if (playlist.trackIds.length > 0) return trackMap.get(playlist.trackIds[0])?.coverUrl;
   return undefined;
 }
@@ -115,7 +115,7 @@ function fromPlaylist(playlist: Playlist, trackMap: Map<string, Track>): Library
     title:            playlist.title,
     subtitle:         `${count} ${count === 1 ? 'track' : 'tracks'}`,
     imageUrl:         playlistImageUrl(playlist, trackMap),
-    coverVariant:     playlist.coverVariant,
+    coverId:          playlist.coverId,
     coverShape:       'square',
     playlistFallback: true,
     sortDate:         new Date(playlist.updatedAt).getTime(),

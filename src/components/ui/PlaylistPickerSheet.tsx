@@ -144,10 +144,10 @@ const PlaylistPickerSheet = ({ isOpen, onClose, trackId, trackTitle }: PlaylistP
               {/* Playlist thumbnail */}
               <div
                 className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-swara-elevated"
-                style={{ background: playlist.coverUrl ? undefined : 'rgba(200,169,106,0.12)' }}
+                style={{ background: playlist.coverImageUrl ? undefined : 'rgba(200,169,106,0.12)' }}
               >
-                {playlist.coverUrl ? (
-                  <img src={playlist.coverUrl} alt="" className="w-full h-full rounded-lg object-cover" />
+                {playlist.coverImageUrl ? (
+                  <img src={playlist.coverImageUrl} alt="" className="w-full h-full rounded-lg object-cover" />
                 ) : (
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="rgba(200,169,106,0.6)" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
                     <path d="M9 18V5l12-2v13"/>

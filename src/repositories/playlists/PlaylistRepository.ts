@@ -25,6 +25,7 @@ interface PlaylistRow {
   title:       string;
   description: string | null;
   cover_url:   string | null;
+  cover_id:    string | null;   // built-in cover key, e.g. 'aurora'
   is_public:   boolean;
   track_count: number;
   created_at:  string;
@@ -42,15 +43,16 @@ interface PlaylistTrackRow {
 
 function rowToPlaylist(r: PlaylistRow): Playlist {
   return {
-    id:          r.id,
-    title:       r.title,
-    description: r.description ?? undefined,
-    coverUrl:    r.cover_url   ?? undefined,
-    isPublic:    r.is_public,
-    trackCount:  r.track_count,
-    createdAt:   r.created_at,
-    updatedAt:   r.updated_at,
-    trackIds:    [], // populated separately by getPlaylist
+    id:             r.id,
+    title:          r.title,
+    description:    r.description    ?? undefined,
+    coverImageUrl:  r.cover_url      ?? undefined,
+    coverId:        r.cover_id       ?? undefined,
+    isPublic:       r.is_public,
+    trackCount:     r.track_count,
+    createdAt:      r.created_at,
+    updatedAt:      r.updated_at,
+    trackIds:       [], // populated separately by getPlaylist
   };
 }
 
@@ -80,7 +82,7 @@ export const PlaylistRepository = {
 
     const { data, error } = await supabase
       .from('playlists')
-      .select('id, title, description, cover_url, is_public, track_count, created_at, updated_at')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
       .order('updated_at', { ascending: false });
 
     if (error) {
@@ -104,7 +106,7 @@ export const PlaylistRepository = {
     const [playlistRes, tracksRes] = await Promise.all([
       supabase
         .from('playlists')
-        .select('id, title, description, cover_url, is_public, track_count, created_at, updated_at')
+        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
         .eq('id', playlistId)
         .single(),
       supabase
@@ -144,7 +146,7 @@ export const PlaylistRepository = {
     const { data, error } = await supabase
       .from('playlists')
       .insert({ title: title.trim(), description: description?.trim() })
-      .select('id, title, description, cover_url, is_public, track_count, created_at, updated_at')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
       .single();
 
     if (error) {
@@ -209,20 +211,38 @@ export const PlaylistRepository = {
   },
 
   /**
-   * Set or remove a playlist cover.
+   * Set or remove a playlist uploaded cover image URL.
    */
-  async updateCover(playlistId: string, coverUrl: string | null): Promise<void> {
+  async updateCover(playlistId: string, coverImageUrl: string | null): Promise<void> {
     console.log('[PlaylistRepo] updateCover:', playlistId);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
     const { error } = await supabase
       .from('playlists')
-      .update({ cover_url: coverUrl })
+      .update({ cover_url: coverImageUrl })
       .eq('id', playlistId);
 
     if (error) console.error('[PlaylistRepo] updateCover ERROR:', error.message);
     else       console.log('[PlaylistRepo] updateCover SUCCESS');
+  },
+
+  /**
+   * Set or clear a built-in cover ID (e.g. 'aurora', 'pulse').
+   * Writes to cover_id column — synced to all devices via syncFromCloud.
+   */
+  async updateCoverId(playlistId: string, coverId: string | null): Promise<void> {
+    console.log('[PlaylistRepo] updateCoverId:', playlistId, '→', coverId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('playlists')
+      .update({ cover_id: coverId })
+      .eq('id', playlistId);
+
+    if (error) console.error('[PlaylistRepo] updateCoverId ERROR:', error.message);
+    else       console.log('[PlaylistRepo] updateCoverId SUCCESS');
   },
 
   // ── Track mutations ───────────────────────────────────────────────────────

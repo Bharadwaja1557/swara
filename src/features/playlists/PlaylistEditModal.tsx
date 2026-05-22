@@ -1,25 +1,31 @@
 /**
- * PlaylistEditModal — edit playlist name + pick a built-in cover.
+ * src/features/playlists/PlaylistEditModal.tsx
  *
- * Uses BottomSheet (already responsive: floating panel on desktop,
- * bottom sheet on mobile) as the surface.
+ * Floating modal for editing playlist name and cover.
  *
- * COVER SELECTION:
- *   Five built-in variants (v1–v5) rendered as selectable radio cards.
- *   A disabled "Upload your own — Coming soon" option sits above them.
+ * KEYBOARD BUG FIX:
+ *   The previous implementation had `autoFocus` on the name input and was
+ *   always mounted (just with isOpen=false). BottomSheet renders children in
+ *   the DOM even when closed, so `autoFocus` fired on PlaylistPage mount,
+ *   opening the mobile keyboard immediately.
  *
- *   Selection is optimistic: updateCoverVariant() writes to localStorage
- *   immediately and updates every consumer (PlaylistPage cover, LibraryPanel
- *   thumbnail, etc.) via Zustand subscription.
+ *   Fix:
+ *     • This component is ONLY mounted when editOpen=true (caller guards with
+ *       `{editOpen && <PlaylistEditModal …/>}`).
+ *     • NO `autoFocus` prop on the input.
+ *     • Input is focused via `useRef` + `requestAnimationFrame` after the
+ *       BottomSheet open animation completes (≈320ms). This is deliberate
+ *       and user-triggered, not on page mount.
  *
- * SAVE:
- *   Name: calls renamePlaylist() on save if changed.
- *   Cover: applied immediately on card click (optimistic) so preview is live.
+ * COVER SYSTEM:
+ *   Uses coverId (stable string key) + static SVG assets from /public/.
+ *   updateCoverId() writes optimistically to Zustand + localStorage AND
+ *   fires a cloud write to persist across devices.
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePlaylistStore } from '@/store/usePlaylistStore';
 import BottomSheet from '@/components/ui/BottomSheet';
-import { COVER_VARIANTS, type CoverVariantKey } from '@/components/ui/PlaylistCover';
+import { PLAYLIST_COVERS } from './coverRegistry';
 import type { Playlist } from '@/store/usePlaylistStore';
 
 interface PlaylistEditModalProps {
@@ -29,15 +35,24 @@ interface PlaylistEditModalProps {
 }
 
 const PlaylistEditModal = ({ playlist, isOpen, onClose }: PlaylistEditModalProps) => {
-  const { renamePlaylist, updateCoverVariant } = usePlaylistStore();
-
+  const { renamePlaylist, updateCoverId } = usePlaylistStore();
   const [name, setName] = useState(playlist.title);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  // Keep local name in sync if the playlist prop changes (e.g. after a rename
-  // from another surface) while the modal is closed.
+  // Sync name if it changes externally between opens
   useEffect(() => {
-    if (!isOpen) setName(playlist.title);
-  }, [isOpen, playlist.title]);
+    setName(playlist.title);
+  }, [playlist.title]);
+
+  // Focus input AFTER the modal animation finishes — never on page mount.
+  // Using rAF + 320ms matches BottomSheet's cubic-bezier transition duration.
+  useEffect(() => {
+    if (!isOpen) return;
+    const t = setTimeout(() => {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }, 320);
+    return () => clearTimeout(t);
+  }, [isOpen]);
 
   const handleSave = () => {
     const trimmed = name.trim();
@@ -47,12 +62,11 @@ const PlaylistEditModal = ({ playlist, isOpen, onClose }: PlaylistEditModalProps
     onClose();
   };
 
-  const handleVariantSelect = (key: CoverVariantKey) => {
-    // Optimistic — immediate update everywhere via Zustand
-    updateCoverVariant(playlist.id, key);
+  const handleCoverSelect = (id: string) => {
+    updateCoverId(playlist.id, id);
   };
 
-  const currentVariant = playlist.coverVariant;
+  const currentCoverId = playlist.coverId;
 
   return (
     <BottomSheet isOpen={isOpen} onClose={onClose}>
@@ -73,12 +87,13 @@ const PlaylistEditModal = ({ playlist, isOpen, onClose }: PlaylistEditModalProps
           </button>
         </div>
 
-        {/* Name input */}
+        {/* Name input — NO autoFocus, focused via ref after animation */}
         <div className="mb-5">
           <label className="block text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-2">
             Name
           </label>
           <input
+            ref={inputRef}
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -86,11 +101,10 @@ const PlaylistEditModal = ({ playlist, isOpen, onClose }: PlaylistEditModalProps
             className="w-full bg-swara-card border border-swara-border rounded-xl px-3.5 py-2.5 text-[0.9rem] text-swara-text placeholder:text-swara-dim focus:outline-none focus:border-swara-accent/50 transition-colors"
             placeholder="Playlist name"
             maxLength={80}
-            autoFocus
           />
         </div>
 
-        {/* Cover section */}
+        {/* Cover picker */}
         <div className="mb-5">
           <label className="block text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3">
             Cover
@@ -113,36 +127,41 @@ const PlaylistEditModal = ({ playlist, isOpen, onClose }: PlaylistEditModalProps
             </span>
           </button>
 
-          {/* Built-in variant grid */}
+          {/* Built-in cover grid — static SVG thumbnails */}
           <div className="grid grid-cols-5 gap-2">
-            {COVER_VARIANTS.map((variant) => {
-              const isSelected = currentVariant === variant.key;
+            {PLAYLIST_COVERS.map((cover) => {
+              const isSelected = currentCoverId === cover.id;
               return (
                 <button
-                  key={variant.key}
+                  key={cover.id}
                   type="button"
-                  onClick={() => handleVariantSelect(variant.key)}
+                  onClick={() => handleCoverSelect(cover.id)}
                   className={[
                     'relative flex flex-col items-center gap-1.5 p-1.5 rounded-xl border-2 transition-all',
                     isSelected
                       ? 'border-swara-accent'
                       : 'border-transparent hover:border-swara-border',
                   ].join(' ')}
-                  aria-label={`Select ${variant.label} cover`}
+                  aria-label={`Select ${cover.label} cover`}
                   aria-pressed={isSelected}
                 >
-                  {/* Cover preview */}
-                  <div className="w-full aspect-square rounded-lg overflow-hidden">
-                    {variant.render(64)}
+                  {/* Preview thumbnail */}
+                  <div className="w-full aspect-square rounded-lg overflow-hidden bg-swara-elevated">
+                    <img
+                      src={cover.url}
+                      alt={cover.label}
+                      className="w-full h-full object-cover"
+                      draggable={false}
+                    />
                   </div>
                   {/* Label */}
                   <span className={[
                     'text-[0.6rem] font-medium truncate w-full text-center',
                     isSelected ? 'text-swara-accent' : 'text-swara-dim',
                   ].join(' ')}>
-                    {variant.label}
+                    {cover.label}
                   </span>
-                  {/* Selected checkmark */}
+                  {/* Check mark */}
                   {isSelected && (
                     <div className="absolute top-2 right-2 w-4 h-4 bg-swara-accent rounded-full flex items-center justify-center">
                       <svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="black" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

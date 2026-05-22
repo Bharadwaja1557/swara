@@ -13,13 +13,14 @@
  * Playlist gradient fallback rendered internally when coverUrl is undefined.
  */
 
-import PlaylistCover from '@/components/ui/PlaylistCover';
+import PlaylistCover from '@/features/playlists/PlaylistCover';
 
 interface LibraryCardProps {
   title:            string;
   subtitle?:        string;
   coverUrl?:        string;
-  coverVariant?:    string;
+  /** Built-in cover ID for playlists — e.g. 'aurora'. */
+  coverId?:         string;
   /** 'circle' for artists, 'square' for albums/playlists. Default: 'square'. */
   coverShape?:      'square' | 'circle';
   /** Show the playlist cover component (variant or default note placeholder). */
@@ -33,7 +34,7 @@ interface LibraryCardProps {
 
 
 const LibraryCard = ({
-  title, subtitle, coverUrl, coverVariant, coverShape = 'square',
+  title, subtitle, coverUrl, coverId, coverShape = 'square',
   playlistFallback = false, isActive = false,
   onClick, compact = false,
 }: LibraryCardProps) => {
@@ -61,8 +62,8 @@ const LibraryCard = ({
       ].filter(Boolean).join(' ')}>
         {playlistFallback ? (
           <PlaylistCover
-            coverUrl={coverUrl}
-            coverVariant={coverVariant}
+            coverImageUrl={coverUrl}
+            coverId={coverId}
             size={0}
             className="w-full h-full"
           />

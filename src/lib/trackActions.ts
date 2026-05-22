@@ -93,7 +93,11 @@ export const trackActions = {
   /** Play a playlist, starting from an optional track */
   playFromPlaylist: (tracks: Track[], playlist: Playlist, startTrack?: Track): void => {
     if (!tracks.length) return;
-    const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, playlist.coverUrl, startTrack);
+    // Resolve the best available cover URL for the queue context artwork.
+    // Priority: uploaded image → built-in SVG asset path
+    const artworkUrl = playlist.coverImageUrl
+      ?? (playlist.coverId ? `/playlist-covers/${playlist.coverId}.svg` : undefined);
+    const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, artworkUrl, startTrack);
     usePlayerStore.getState().playQueue(built);
   },
 

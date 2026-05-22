@@ -31,10 +31,10 @@ export interface Playlist {
   id:          string;
   title:       string;
   description?: string;
-  coverUrl?:   string;
-  /** Built-in cover design key — e.g. 'v1'–'v5'. Takes precedence over default
-   *  placeholder; coverUrl takes precedence over this. */
-  coverVariant?: string;
+  /** User-uploaded cover image URL (future — currently always undefined). */
+  coverImageUrl?: string;
+  /** Built-in cover ID key — e.g. 'aurora', 'pulse'. Synced to cloud. */
+  coverId?:    string;
   isPublic:    boolean;
   trackCount:  number;
   createdAt:   string;
@@ -72,8 +72,9 @@ interface PlaylistState {
   renamePlaylist:  (id: string, title: string) => void;
   deletePlaylist:  (id: string) => void;
   togglePublic:    (id: string) => void;
-  updateCover:     (id: string, coverUrl: string | null) => void;
-  updateCoverVariant: (id: string, variant: string | null) => void;
+  updateCover:     (id: string, coverImageUrl: string | null) => void;
+  /** Set a built-in cover by ID (e.g. 'aurora'). Syncs to cloud. */
+  updateCoverId:   (id: string, coverId: string | null) => void;
 
   // ── Track mutations ───────────────────────────────────────────────────────
   addTrackToPlaylist:      (playlistId: string, trackId: string) => void;
@@ -194,26 +195,30 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
       .catch((err) => console.error('[Playlists] togglePublic cloud write failed:', err));
   },
 
-  updateCover: (id, coverUrl) => {
+  updateCover: (id, coverImageUrl) => {
     const playlists = get().playlists.map((p) =>
-      p.id !== id ? p : { ...p, coverUrl: coverUrl ?? undefined, updatedAt: new Date().toISOString() }
+      p.id !== id ? p : { ...p, coverImageUrl: coverImageUrl ?? undefined, updatedAt: new Date().toISOString() }
     );
     writeCache(playlists);
     set({ playlists });
 
     import('@/repositories/playlists/PlaylistRepository')
-      .then(({ PlaylistRepository }) => PlaylistRepository.updateCover(id, coverUrl))
+      .then(({ PlaylistRepository }) => PlaylistRepository.updateCover(id, coverImageUrl))
       .catch((err) => console.error('[Playlists] updateCover cloud write failed:', err));
   },
 
-  // Optimistic-local-only: built-in cover variants are stored in localStorage
-  // and do not require a cloud column (the DB can add one later non-breakingly).
-  updateCoverVariant: (id, variant) => {
+  updateCoverId: (id, coverId) => {
+    // Optimistic local update first
     const playlists = get().playlists.map((p) =>
-      p.id !== id ? p : { ...p, coverVariant: variant ?? undefined, updatedAt: new Date().toISOString() }
+      p.id !== id ? p : { ...p, coverId: coverId ?? undefined, updatedAt: new Date().toISOString() }
     );
     writeCache(playlists);
     set({ playlists });
+
+    // Cloud write — persists across devices
+    import('@/repositories/playlists/PlaylistRepository')
+      .then(({ PlaylistRepository }) => PlaylistRepository.updateCoverId(id, coverId))
+      .catch((err) => console.error('[Playlists] updateCoverId cloud write failed:', err));
   },
 
   // ── Track mutations ───────────────────────────────────────────────────────
@@ -299,6 +304,7 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
 
       // Cloud is authoritative for metadata. Preserve any locally loaded trackIds
       // so PlaylistPage doesn't lose track lists that were already fetched.
+      // coverId comes from the cloud response (cover_id DB column).
       const merged = cloudPlaylists.map((cloud) => {
         const local = get().playlists.find((p) => p.id === cloud.id);
         return { ...cloud, trackIds: local?.trackIds ?? [] };
