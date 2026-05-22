@@ -13,13 +13,16 @@
  * Playlist gradient fallback rendered internally when coverUrl is undefined.
  */
 
+import PlaylistCover from '@/components/ui/PlaylistCover';
+
 interface LibraryCardProps {
   title:            string;
   subtitle?:        string;
   coverUrl?:        string;
+  coverVariant?:    string;
   /** 'circle' for artists, 'square' for albums/playlists. Default: 'square'. */
   coverShape?:      'square' | 'circle';
-  /** Show the music-note gradient placeholder used for playlists. */
+  /** Show the playlist cover component (variant or default note placeholder). */
   playlistFallback?: boolean;
   /** Highlight title in accent colour (desktop sidebar active route). */
   isActive?:        boolean;
@@ -28,33 +31,9 @@ interface LibraryCardProps {
   compact?:         boolean;
 }
 
-const PlaylistPlaceholder = () => (
-  <div
-    className="w-full h-full flex items-center justify-center"
-    style={{ background: 'linear-gradient(135deg, #1a1422 0%, #221830 50%, #1a1220 100%)' }}
-  >
-    <svg viewBox="0 0 24 24" width="30" height="30" fill="none"
-      stroke="rgba(200,169,106,0.35)" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
-      <path d="M9 18V5l12-2v13"/>
-      <circle cx="6" cy="18" r="3"/>
-      <circle cx="18" cy="16" r="3"/>
-    </svg>
-  </div>
-);
-
-const GenericPlaceholder = () => (
-  <div className="w-full h-full flex items-center justify-center bg-swara-elevated">
-    <svg viewBox="0 0 24 24" width="28" height="28" fill="none"
-      stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" aria-hidden="true">
-      <path d="M9 18V5l12-2v13"/>
-      <circle cx="6" cy="18" r="3"/>
-      <circle cx="18" cy="16" r="3"/>
-    </svg>
-  </div>
-);
 
 const LibraryCard = ({
-  title, subtitle, coverUrl, coverShape = 'square',
+  title, subtitle, coverUrl, coverVariant, coverShape = 'square',
   playlistFallback = false, isActive = false,
   onClick, compact = false,
 }: LibraryCardProps) => {
@@ -80,12 +59,24 @@ const LibraryCard = ({
         coverClass,
         compact ? '' : 'rounded-xl',
       ].filter(Boolean).join(' ')}>
-        {coverUrl ? (
+        {playlistFallback ? (
+          <PlaylistCover
+            coverUrl={coverUrl}
+            coverVariant={coverVariant}
+            size={0}
+            className="w-full h-full"
+          />
+        ) : coverUrl ? (
           <img src={coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-        ) : playlistFallback ? (
-          <PlaylistPlaceholder />
         ) : (
-          <GenericPlaceholder />
+          <div className="w-full h-full bg-swara-elevated flex items-center justify-center">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none"
+              stroke="rgba(255,255,255,0.12)" strokeWidth="1.5" aria-hidden="true">
+              <path d="M9 18V5l12-2v13"/>
+              <circle cx="6" cy="18" r="3"/>
+              <circle cx="18" cy="16" r="3"/>
+            </svg>
+          </div>
         )}
       </div>
 

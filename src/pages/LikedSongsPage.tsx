@@ -7,15 +7,12 @@
  * Uses the same memo + fine-grained selector pattern as AlbumPage to prevent
  * re-render loops on progress ticks.
  */
-import { memo, useCallback, useState } from 'react';
+import { useCallback, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { usePlayerStore } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
 import { trackActions } from '@/lib/trackActions';
-import TrackMenuSheet from '@/components/ui/TrackMenuSheet';
-import type { Track } from '@/types/music';
-const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/></svg>';
-
+import SongRow from '@/components/ui/SongRow';
+import ShuffleIcon from '@/components/ui/ShuffleIcon';
 // ── Heart artwork cover ────────────────────────────────────────────────────────
 const HeartCover = ({ size }: { size: 'sm' | 'lg' }) => {
   const px = size === 'lg' ? 280 : 200;
@@ -37,93 +34,6 @@ const HeartCover = ({ size }: { size: 'sm' | 'lg' }) => {
     </div>
   );
 };
-
-// ── PlayingBars (mirrors AlbumPage) ───────────────────────────────────────────
-const PlayingBars = () => (
-  <div className="flex gap-[2px] items-end justify-center h-[14px]" aria-hidden="true">
-    {[{ h: '55%', delay: '0s' }, { h: '100%', delay: '0.15s' }, { h: '40%', delay: '0.3s' }].map((b, i) => (
-      <span key={i} className="w-[3px] bg-swara-accent rounded-full"
-        style={{ height: b.h, animation: `eq 0.9s ease-in-out ${b.delay} infinite`, transformOrigin: 'bottom' }} />
-    ))}
-  </div>
-);
-
-// ── Track row ─────────────────────────────────────────────────────────────────
-const LikedTrackRow = memo(({ track }: { track: Track }) => {
-  const currentTrackId = usePlayerStore((s) => s.currentTrack?.id);
-  const isPlayingStore = usePlayerStore((s) => s.isPlaying);
-  const liked          = useLikedStore((s) => s.isLiked(track.id));
-
-  const [menuMounted, setMenuMounted] = useState(false);
-  const [menuOpen,    setMenuOpen]    = useState(false);
-
-  const isActive  = currentTrackId === track.id;
-  const isPlaying = isPlayingStore && isActive;
-
-  const handlePlay     = useCallback(() => trackActions.playFromLiked(track), [track]);
-  const handleKeyDown  = useCallback((e: React.KeyboardEvent) => { if (e.key === 'Enter') trackActions.playFromLiked(track); }, [track]);
-  const handleOpenMenu = useCallback(() => { setMenuMounted(true); setMenuOpen(true); }, []);
-
-  return (
-    <li
-      className={['flex items-center gap-3 px-2 py-3 rounded-xl transition-colors duration-150 cursor-pointer hover:bg-swara-card active:scale-[0.98]', isActive ? 'bg-swara-card' : ''].join(' ')}
-      onClick={handlePlay}
-      role="button" tabIndex={0}
-      onKeyDown={handleKeyDown}
-    >
-      {/* Cover */}
-      <img src={track.coverUrl || PH} alt=""
-        className="w-10 h-10 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
-
-      {/* Title + artist */}
-      <div className="flex-1 min-w-0">
-        <p className={['text-[0.88rem] font-medium truncate leading-snug', isActive ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>
-          {track.title}
-        </p>
-        <p className="text-[0.72rem] text-swara-muted truncate mt-[1px]">
-          {track.artist}{track.album ? ` · ${track.album}` : ''}
-        </p>
-      </div>
-
-      {/* Playing bars (active track) */}
-      {isActive && isPlaying && (
-        <div className="flex-shrink-0 mr-1">
-          <PlayingBars />
-        </div>
-      )}
-
-      {/* Heart + menu */}
-      <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-        <button type="button" onClick={() => trackActions.toggleLike(track)}
-          className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
-          aria-label={liked ? 'Unlike' : 'Like'}>
-          <svg viewBox="0 0 24 24" width="17" height="17"
-            fill={liked ? 'currentColor' : 'none'}
-            stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-          </svg>
-        </button>
-        <button type="button" onClick={handleOpenMenu}
-          className="w-9 h-9 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
-          aria-label="Track options">
-          <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
-            <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
-          </svg>
-        </button>
-      </div>
-
-      {/* Lazy-mounted track menu */}
-      {menuMounted && (
-        <TrackMenuSheet
-          track={track}
-          isOpen={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          context="liked"
-        />
-      )}
-    </li>
-  );
-});
 
 // ── LikedSongsPage ────────────────────────────────────────────────────────────
 const LikedSongsPage = () => {
@@ -188,11 +98,7 @@ const LikedSongsPage = () => {
               <button type="button" onClick={() => setIsShuffle((s) => !s)}
                 className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', isShuffle ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
                 aria-label={isShuffle ? 'Shuffle on' : 'Shuffle off'}>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                  style={{ opacity: isShuffle ? 1 : 0.5 }}>
-                  <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-                  <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-                </svg>
+                <ShuffleIcon active={isShuffle} size={18} />
               </button>
               <button type="button" onClick={handlePlay}
                 className="flex items-center justify-center w-10 h-10 rounded-full bg-swara-accent text-swara-bg active:scale-95 transition-transform"
@@ -224,7 +130,12 @@ const LikedSongsPage = () => {
         ) : (
           <ul className="space-y-0">
             {tracks.map((track) => (
-              <LikedTrackRow key={track.id} track={track} />
+              <SongRow
+                key={track.id}
+                track={track}
+                onPlay={() => trackActions.playFromLiked(track)}
+                menuContext="liked"
+              />
             ))}
           </ul>
         )}

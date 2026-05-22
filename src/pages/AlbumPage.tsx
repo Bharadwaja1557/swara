@@ -1,140 +1,13 @@
-import { memo, useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore }     from '@/store/libraryStore';
-import { usePlayerStore }      from '@/store/playerStore';
-import { useLikedStore }       from '@/store/likedStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
-import TrackMenuSheet          from '@/components/ui/TrackMenuSheet';
+import SongRow                 from '@/components/ui/SongRow';
 import ShuffleIcon             from '@/components/ui/ShuffleIcon';
-import type { Track, Album }   from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
-
-// ─── Playing bars ─────────────────────────────────────────────────────────────
-const PlayingBars = () => (
-  // items-end anchors bars to bottom of container.
-  // transformOrigin: 'bottom' on each bar ensures scaleY shrinks/grows
-  // from the bottom edge upward — correct music equalizer behavior.
-  // Without it, scaleY uses center origin and bars expand both up AND down.
-  <div className="flex gap-[2px] items-end justify-center h-[14px]" aria-hidden="true">
-    {[{ h: '55%', delay: '0s' }, { h: '100%', delay: '0.15s' }, { h: '40%', delay: '0.3s' }].map((b, i) => (
-      <span key={i} className="w-[3px] bg-swara-accent rounded-full"
-        style={{ height: b.h, animation: `eq 0.9s ease-in-out ${b.delay} infinite`, transformOrigin: 'bottom' }} />
-    ))}
-  </div>
-);
-
-// ─── Track row ────────────────────────────────────────────────────────────────
-// memo: prevents re-renders when parent re-renders with same props.
-// Fine-grained selectors inside are the PRIMARY flickering fix — see comments.
-const TrackRow = memo(({ track, album }: { track: Track; album: Album }) => {
-  // ── ROOT CAUSE FIX ──────────────────────────────────────────────────────────
-  // usePlayerStore() WITHOUT a selector subscribes this component to the ENTIRE
-  // store. playerStore emits progress+duration ~4×/sec via ontimeupdate.
-  // With 25 tracks: 25 rows × 4 ticks/sec = 100 re-renders/sec → black flicker.
-  //
-  // Solution: subscribe only to the three values actually used.
-  // currentTrackId changes only on track switch (not on progress).
-  // isPlayingStore changes only on play/pause.
-  // playTrack is a stable action reference — never changes.
-  // Result: zero re-renders during normal playback. Flicker eliminated.
-  const currentTrackId  = usePlayerStore((s) => s.currentTrack?.id);
-  const isPlayingStore  = usePlayerStore((s) => s.isPlaying);
-
-  const liked = useLikedStore((s) => s.isLiked(track.id));
-
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  // Lazy mount: BottomSheet (fixed inset-0 z-[90]) is NOT in the DOM until
-  // the menu is first opened. Without this, 25 fixed full-screen overlay
-  // elements exist on initial paint — a massive compositor burden on mobile.
-  const [menuMounted, setMenuMounted] = useState(false);
-
-  const isActive   = currentTrackId === track.id;
-  const isPlaying  = isPlayingStore && isActive;
-
-  const handleOpenMenu = useCallback(() => {
-    setMenuMounted(true); // mount once, keep mounted for close animation
-    setMenuOpen(true);
-  }, []);
-
-  const handlePlay = useCallback(() => {
-    trackActions.playFromAlbum(track, album);
-  }, [track, album]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') trackActions.playFromAlbum(track, album);
-  }, [track, album]);
-
-  return (
-    <>
-      <li
-        className={['flex items-center gap-3 px-2 py-3 rounded-xl transition-colors duration-150 cursor-pointer hover:bg-swara-card active:scale-[0.98]', isActive ? 'bg-swara-card' : ''].join(' ')}
-        onClick={handlePlay}
-        role="button" tabIndex={0}
-        onKeyDown={handleKeyDown}
-      >
-        {/* Track number / playing bars */}
-        <div className="w-7 flex items-center justify-center flex-shrink-0">
-          {isActive && isPlaying ? <PlayingBars /> : (
-            <span className={['text-[0.82rem] font-medium tabular-nums', isActive ? 'text-swara-accent' : 'text-swara-dim'].join(' ')}>
-              {track.trackNumber}
-            </span>
-          )}
-        </div>
-
-        {/* Title + artists */}
-        <div className="flex-1 min-w-0">
-          <p className={['text-[0.88rem] font-medium truncate leading-snug', isActive ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>
-            {track.title}
-          </p>
-          {track.artists.length > 0 && (
-            <p className="text-[0.72rem] text-swara-muted truncate mt-[1px]">
-              {track.artists.join(', ')}
-            </p>
-          )}
-        </div>
-
-        {/* Heart + 3 dots */}
-        <div className="flex items-center gap-0.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            onClick={() => trackActions.toggleLike(track)}
-            className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
-            aria-label={liked ? 'Unlike' : 'Like'}
-          >
-            <svg viewBox="0 0 24 24" width="17" height="17" fill={liked ? 'currentColor' : 'none'}
-              stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-            </svg>
-          </button>
-          <button
-            type="button"
-            onClick={handleOpenMenu}
-            className="w-9 h-9 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
-            aria-label="Track options"
-          >
-            <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">
-              <circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/>
-            </svg>
-          </button>
-        </div>
-      </li>
-
-      {/* Only mounted after first open — keeps close animation, removes 25×
-          fixed overlays from initial DOM paint */}
-      {menuMounted && (
-        <TrackMenuSheet
-          track={track}
-          isOpen={menuOpen}
-          onClose={() => setMenuOpen(false)}
-          context="default"
-        />
-      )}
-    </>
-  );
-});
 
 // ─── AlbumPage ────────────────────────────────────────────────────────────────
 const AlbumPage = () => {
@@ -311,7 +184,13 @@ const AlbumPage = () => {
         {!loading && !error && (
           <ul className="space-y-0">
             {tracks.map((track) => (
-              <TrackRow key={track.id} track={track} album={album} />
+              <SongRow
+                key={track.id}
+                track={track}
+                onPlay={() => trackActions.playFromAlbum(track, album)}
+                showTrackNumber
+                menuContext="default"
+              />
             ))}
           </ul>
         )}

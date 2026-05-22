@@ -43,6 +43,8 @@ export interface LibraryRenderable {
   subtitle?:         string;
   tertiary?:         string;
   imageUrl?:         string;
+  /** Built-in cover variant key — for playlist built-in designs. */
+  coverVariant?:     string;
   coverShape:        'square' | 'circle';
   /** Render the music-note gradient placeholder when imageUrl is missing. */
   playlistFallback:  boolean;
@@ -113,6 +115,7 @@ function fromPlaylist(playlist: Playlist, trackMap: Map<string, Track>): Library
     title:            playlist.title,
     subtitle:         `${count} ${count === 1 ? 'track' : 'tracks'}`,
     imageUrl:         playlistImageUrl(playlist, trackMap),
+    coverVariant:     playlist.coverVariant,
     coverShape:       'square',
     playlistFallback: true,
     sortDate:         new Date(playlist.updatedAt).getTime(),

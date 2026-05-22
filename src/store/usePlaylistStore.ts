@@ -32,6 +32,9 @@ export interface Playlist {
   title:       string;
   description?: string;
   coverUrl?:   string;
+  /** Built-in cover design key — e.g. 'v1'–'v5'. Takes precedence over default
+   *  placeholder; coverUrl takes precedence over this. */
+  coverVariant?: string;
   isPublic:    boolean;
   trackCount:  number;
   createdAt:   string;
@@ -70,6 +73,7 @@ interface PlaylistState {
   deletePlaylist:  (id: string) => void;
   togglePublic:    (id: string) => void;
   updateCover:     (id: string, coverUrl: string | null) => void;
+  updateCoverVariant: (id: string, variant: string | null) => void;
 
   // ── Track mutations ───────────────────────────────────────────────────────
   addTrackToPlaylist:      (playlistId: string, trackId: string) => void;
@@ -200,6 +204,16 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     import('@/repositories/playlists/PlaylistRepository')
       .then(({ PlaylistRepository }) => PlaylistRepository.updateCover(id, coverUrl))
       .catch((err) => console.error('[Playlists] updateCover cloud write failed:', err));
+  },
+
+  // Optimistic-local-only: built-in cover variants are stored in localStorage
+  // and do not require a cloud column (the DB can add one later non-breakingly).
+  updateCoverVariant: (id, variant) => {
+    const playlists = get().playlists.map((p) =>
+      p.id !== id ? p : { ...p, coverVariant: variant ?? undefined, updatedAt: new Date().toISOString() }
+    );
+    writeCache(playlists);
+    set({ playlists });
   },
 
   // ── Track mutations ───────────────────────────────────────────────────────
