@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
 import { trackActions } from '@/lib/trackActions';
@@ -21,6 +21,7 @@ const FullscreenPlayer = () => {
   } = usePlayerStore();
   const { isLiked } = useLikedStore();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [coverError, setCoverError] = useState(false);
@@ -31,13 +32,17 @@ const FullscreenPlayer = () => {
 
   useEffect(() => { setCoverError(false); }, [currentTrack?.id]);
 
-  // Reset scroll to top whenever player is opened — prevents stale scroll position
-  // from previous session (Issue 3: scroll persisted across minimize/reopen/queue).
+  // Reset scroll to top on two occasions:
+  //   1. Player expands (isExpanded flips true)
+  //   2. Route changes back to the player context (e.g. user opens /queue
+  //      then navigates back — QueuePage is a fixed inset-0 layer rendered
+  //      BELOW FullscreenPlayer, so the player's own scroll container retains
+  //      its last position when QueuePage unmounts).
   useEffect(() => {
     if (isExpanded) {
       scrollBodyRef.current?.scrollTo({ top: 0 });
     }
-  }, [isExpanded]);
+  }, [isExpanded, location.pathname]);
 
   // Non-passive touchmove to prevent pull-to-refresh only during dismiss drag
   useEffect(() => {

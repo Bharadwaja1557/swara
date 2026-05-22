@@ -165,16 +165,18 @@ const AlbumPage = () => {
 
   useEffect(() => { setCoverErr(false); }, [album?.id]);
 
-  // ── Loading guard: library not yet bootstrapped ───────────────────────────
-  // On hard refresh / direct deep-link, `loaded` is false and `albums` is []
-  // so album is always undefined at first render. Show a spinner instead of
-  // the permanent "not found" state — the album may exist once data arrives.
+  // ── Guard 1: library not bootstrapped ────────────────────────────────────
+  // On hard refresh / direct deep-link `loaded` is false and `albums` is []
+  // on the first render. Show a spinner — do NOT evaluate album (would always
+  // be undefined here, giving a false "not found" flash).
   if (!loaded) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
     </div>
   );
 
+  // ── Guard 2: album not in catalog ─────────────────────────────────────────
+  // Evaluated only after `loaded` is true — genuinely missing album.
   if (!album) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
       <p className="text-swara-muted text-sm">Album not found</p>
