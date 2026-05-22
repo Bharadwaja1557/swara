@@ -7,6 +7,7 @@ import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
 import TrackMenuSheet          from '@/components/ui/TrackMenuSheet';
+import ShuffleIcon             from '@/components/ui/ShuffleIcon';
 import type { Track, Album }   from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
@@ -164,6 +165,16 @@ const AlbumPage = () => {
 
   useEffect(() => { setCoverErr(false); }, [album?.id]);
 
+  // ── Loading guard: library not yet bootstrapped ───────────────────────────
+  // On hard refresh / direct deep-link, `loaded` is false and `albums` is []
+  // so album is always undefined at first render. Show a spinner instead of
+  // the permanent "not found" state — the album may exist once data arrives.
+  if (!loaded) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
+    </div>
+  );
+
   if (!album) return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
       <p className="text-swara-muted text-sm">Album not found</p>
@@ -269,14 +280,7 @@ const AlbumPage = () => {
             <button type="button" onClick={() => setIsShuffle((s) => !s)}
               className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', isShuffle ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
               aria-label={isShuffle ? 'Shuffle on' : 'Shuffle off'}>
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                style={{ opacity: isShuffle ? 1 : 0.5 }}>
-                <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 1.9-1.7 3.3-1.7H22"/>
-                <path d="m18 2 4 4-4 4"/>
-                <path d="M2 6h1.9c1.5 0 2.9.9 3.5 2.2"/>
-                <path d="m18 14 4 4-4 4"/>
-                <path d="M21.7 16.4c-.3.5-.8.8-1.3 1.1l-.9.5"/>
-              </svg>
+              <ShuffleIcon active={isShuffle} size={18} />
             </button>
 
             {/* Play */}

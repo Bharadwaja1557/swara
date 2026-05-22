@@ -1,15 +1,13 @@
 /**
  * LibraryPanel — desktop left sidebar.
- * Shows the user's PERSONAL library (useUserLibraryStore).
- * Does NOT show the full catalog — that's Search > Browse.
  *
- * Content resolved from IDs via canonical Maps (O(1) — no find()).
+ * TAB ORDER: All | Playlists | Albums | Artists
  *
- * TABS: Albums | Artists | Playlists
- *   Playlists come directly from usePlaylistStore (same source as LibraryPage).
- *   View toggle is hidden on Playlists tab (grid-only, matching LibraryPage UX).
- *   isEmpty is now tab-aware: the global empty state fires only when the user
- *   has no albums AND no playlists.
+ * Shares the same tab structure and rendering philosophy as LibraryPage.
+ * Uses the same LibraryCard / LibraryRow shared components for visual
+ * consistency — no more divergence between mobile/desktop library rendering.
+ *
+ * Size: compact=true on all shared components for tighter sidebar fit.
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -17,11 +15,13 @@ import { useLibraryStore }      from '@/store/libraryStore';
 import { useUserLibraryStore }  from '@/store/useUserLibraryStore';
 import { useLikedStore }        from '@/store/likedStore';
 import { usePlaylistStore }     from '@/store/usePlaylistStore';
+import LibraryCard              from '@/components/ui/LibraryCard';
+import LibraryRow               from '@/components/ui/LibraryRow';
 import type { Playlist }        from '@/store/usePlaylistStore';
 import type { Album, Artist }   from '@/types/music';
-import { slugify }               from '@/utils/library';
+import { slugify }              from '@/utils/library';
 
-type Tab      = 'Albums' | 'Artists' | 'Playlists';
+type Tab      = 'All' | 'Playlists' | 'Albums' | 'Artists';
 type Sort     = 'Recently Added' | 'A-Z' | 'Z-A';
 type ViewMode = 'list' | 'grid';
 
@@ -43,15 +43,23 @@ function savePanelPrefs(sort: Sort, view: ViewMode) {
   try { localStorage.setItem(PANEL_PREF_KEY, JSON.stringify({ sort, view })); } catch {}
 }
 
-// ── Playlist fallback artwork ─────────────────────────────────────────────────
-// Returns the first available cover URL for a playlist (explicit → undefined).
-// trackMap lookup omitted in the compact sidebar — artwork is purely optional.
-function getPlaylistThumb(playlist: Playlist): string | undefined {
+// ── Playlist cover helper ─────────────────────────────────────────────────────
+
+function playlistCoverUrl(playlist: Playlist): string | undefined {
   return playlist.coverUrl ?? undefined;
 }
 
+// ── Unified "All" item type ───────────────────────────────────────────────────
+
+type AllItem =
+  | { kind: 'album';    data: Album;    sortName: string; sortDate: number }
+  | { kind: 'artist';   data: Artist;   sortName: string; sortDate: number }
+  | { kind: 'playlist'; data: Playlist; sortName: string; sortDate: number };
+
+// ── LibraryPanel ──────────────────────────────────────────────────────────────
+
 const LibraryPanel = () => {
-  const [tab,      setTab]      = useState<Tab>('Albums');
+  const [tab,      setTab]      = useState<Tab>('All');
   const [sort,     setSort]     = useState<Sort>(() => loadPanelPrefs().sort);
   const [view,     setView]     = useState<ViewMode>(() => loadPanelPrefs().view);
   const [sortOpen, setSortOpen] = useState(false);
@@ -61,16 +69,9 @@ const LibraryPanel = () => {
 
   // ── Store subscriptions ───────────────────────────────────────────────────
 
-  // Catalog Maps — O(1) resolution
   const { albumMap, artistMap } = useLibraryStore();
-
-  // User library entries (IDs only)
-  const { entries } = useUserLibraryStore();
-
-  // User playlists — selector subscription (only re-renders when playlists change)
-  const playlists = usePlaylistStore((s) => s.playlists);
-
-  // Liked count
+  const { entries }    = useUserLibraryStore();
+  const playlists      = usePlaylistStore((s) => s.playlists);
   const getLikedTracks = useLikedStore((s) => s.getLikedTracks);
   const likedCount     = getLikedTracks().length;
 
@@ -84,52 +85,123 @@ const LibraryPanel = () => {
     setView(v); savePanelPrefs(sort, v);
   }, [sort]);
 
-  // ── Memoized resolved + sorted lists ─────────────────────────────────────
+  // ── Sorted data ───────────────────────────────────────────────────────────
 
-  // Resolve IDs → Album objects
   const libraryAlbums = useMemo((): Album[] => {
     const list = entries
       .map((e) => albumMap.get(e.albumId))
       .filter((a): a is Album => a !== undefined);
     if (sort === 'A-Z') return [...list].sort((a, b) => a.title.localeCompare(b.title));
     if (sort === 'Z-A') return [...list].sort((a, b) => b.title.localeCompare(a.title));
-    return list; // Recently Added preserves insertion order
+    return list;
   }, [entries, albumMap, sort]);
 
-  // Derive unique artists from library albums
   const libraryArtists = useMemo((): Artist[] => {
     const seen = new Set<string>();
     const result: Artist[] = [];
     for (const entry of entries) {
-      const album = albumMap.get(entry.albumId);
+      const album    = albumMap.get(entry.albumId);
       if (!album) continue;
       const artistId = slugify(album.composer);
       if (!artistId || seen.has(artistId)) continue;
       seen.add(artistId);
-      const artist = artistMap.get(artistId);
+      const artist   = artistMap.get(artistId);
       if (artist) result.push(artist);
     }
     if (sort === 'A-Z') return [...result].sort((a, b) => a.name.localeCompare(b.name));
     if (sort === 'Z-A') return [...result].sort((a, b) => b.name.localeCompare(a.name));
-    return result; // Recently Added preserves album-derived order
+    return result;
   }, [entries, albumMap, artistMap, sort]);
 
-  // Playlists — come directly from usePlaylistStore, no resolution needed
   const libraryPlaylists = useMemo((): Playlist[] => {
-    console.log('[LibraryPanel] libraryPlaylists memo — playlists in store:', playlists.length, '| tab:', tab, '| sort:', sort);
+    if (sort === 'Recently Added')
+      return [...playlists].sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     if (sort === 'A-Z') return [...playlists].sort((a, b) => a.title.localeCompare(b.title));
-    if (sort === 'Z-A') return [...playlists].sort((a, b) => b.title.localeCompare(a.title));
-    // Recently Added: most-recently-updated first
-    return [...playlists].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-  }, [playlists, sort, tab]);
+    return [...playlists].sort((a, b) => b.title.localeCompare(a.title));
+  }, [playlists, sort]);
 
-  // ── Empty state guards ────────────────────────────────────────────────────
-  // Global empty: no albums AND no playlists
+  const allItems = useMemo((): AllItem[] => {
+    const items: AllItem[] = [];
+    const seenArtists = new Set<string>();
+
+    for (const entry of entries) {
+      const album = albumMap.get(entry.albumId);
+      if (!album) continue;
+      items.push({ kind: 'album', data: album, sortName: album.title, sortDate: entry.addedAt });
+      const artistId = slugify(album.composer);
+      const artist   = artistMap.get(artistId);
+      if (artist && !seenArtists.has(artist.id)) {
+        seenArtists.add(artist.id);
+        items.push({ kind: 'artist', data: artist, sortName: artist.name, sortDate: entry.addedAt });
+      }
+    }
+    for (const pl of playlists) {
+      items.push({ kind: 'playlist', data: pl, sortName: pl.title, sortDate: new Date(pl.updatedAt).getTime() });
+    }
+
+    if (sort === 'Recently Added') return items.sort((a, b) => b.sortDate - a.sortDate);
+    if (sort === 'A-Z') return items.sort((a, b) => a.sortName.localeCompare(b.sortName));
+    return items.sort((a, b) => b.sortName.localeCompare(a.sortName));
+  }, [entries, albumMap, artistMap, playlists, sort]);
+
+  // ── Empty state helpers ───────────────────────────────────────────────────
+
   const isGloballyEmpty = entries.length === 0 && playlists.length === 0;
-  // ── Diagnostic logging ────────────────────────────────────────────────────
-  console.log('[LibraryPanel] render — tab:', tab, '| entries:', entries.length, '| playlists:', playlists.length, '| libraryPlaylists:', libraryPlaylists.length, '| isGloballyEmpty:', isGloballyEmpty);
+
+  // ── Render helpers ────────────────────────────────────────────────────────
+
+  const gridCls = 'grid grid-cols-2 gap-2 px-2 pt-1';
+
+  const renderItem = (item: AllItem) => {
+    const hash = location.hash;
+    if (item.kind === 'album') {
+      const active = hash.includes(`/album/${item.data.id}`);
+      return view === 'grid' ? (
+        <LibraryCard key={`a-${item.data.id}`}
+          title={item.data.title} subtitle={item.data.composer}
+          coverUrl={item.data.coverUrl} isActive={active} compact
+          onClick={() => navigate(`/album/${item.data.id}`)} />
+      ) : (
+        <LibraryRow key={`a-${item.data.id}`}
+          title={item.data.title} subtitle={item.data.composer}
+          coverUrl={item.data.coverUrl} isActive={active} compact showChevron={false}
+          onClick={() => navigate(`/album/${item.data.id}`)} />
+      );
+    }
+    if (item.kind === 'artist') {
+      const active = hash.includes(`/artist/${item.data.id}`);
+      return view === 'grid' ? (
+        <LibraryCard key={`ar-${item.data.id}`}
+          title={item.data.name} coverUrl={item.data.coverUrl}
+          coverShape="circle" isActive={active} compact
+          onClick={() => navigate(`/artist/${item.data.id}`)} />
+      ) : (
+        <LibraryRow key={`ar-${item.data.id}`}
+          title={item.data.name}
+          subtitle={`${item.data.albumIds.length} album${item.data.albumIds.length !== 1 ? 's' : ''}`}
+          coverUrl={item.data.coverUrl} coverShape="circle"
+          isActive={active} compact showChevron={false}
+          onClick={() => navigate(`/artist/${item.data.id}`)} />
+      );
+    }
+    // playlist
+    const active = hash.includes(`/playlist/${item.data.id}`);
+    return view === 'grid' ? (
+      <LibraryCard key={`pl-${item.data.id}`}
+        title={item.data.title}
+        subtitle={`${item.data.trackCount} ${item.data.trackCount === 1 ? 'track' : 'tracks'}`}
+        coverUrl={playlistCoverUrl(item.data)}
+        playlistFallback isActive={active} compact
+        onClick={() => navigate(`/playlist/${item.data.id}`)} />
+    ) : (
+      <LibraryRow key={`pl-${item.data.id}`}
+        title={item.data.title}
+        subtitle={`${item.data.trackCount} ${item.data.trackCount === 1 ? 'track' : 'tracks'}`}
+        coverUrl={playlistCoverUrl(item.data)}
+        playlistFallback isActive={active} compact showChevron={false}
+        onClick={() => navigate(`/playlist/${item.data.id}`)} />
+    );
+  };
 
   return (
     <aside
@@ -142,8 +214,8 @@ const LibraryPanel = () => {
           <h2 className="text-[0.78rem] font-semibold text-swara-muted tracking-widest uppercase">Library</h2>
 
           <div className="flex items-center gap-2">
-            {/* View toggle — hidden on Playlists (grid-only) */}
-            {!isGloballyEmpty && tab !== 'Playlists' && (
+            {/* View toggle */}
+            {!isGloballyEmpty && (
               <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-md p-0.5">
                 {(['list', 'grid'] as ViewMode[]).map((v) => (
                   <button key={v} type="button" onClick={() => handleSetView(v)}
@@ -157,7 +229,7 @@ const LibraryPanel = () => {
               </div>
             )}
 
-            {/* Sort icon */}
+            {/* Sort */}
             {!isGloballyEmpty && (
               <div className="relative">
                 <button type="button" onClick={() => setSortOpen((o) => !o)}
@@ -185,11 +257,11 @@ const LibraryPanel = () => {
           </div>
         </div>
 
-        {/* Tab chips — Albums | Artists | Playlists */}
-        <div className="flex gap-1.5">
-          {(['Albums', 'Artists', 'Playlists'] as Tab[]).map((t) => (
+        {/* Tab chips — All | Playlists | Albums | Artists */}
+        <div className="flex gap-1 flex-wrap">
+          {(['All', 'Playlists', 'Albums', 'Artists'] as Tab[]).map((t) => (
             <button key={t} type="button" onClick={() => setTab(t)}
-              className={['px-3 py-1 rounded-full text-[0.72rem] font-medium border transition-all', tab === t ? 'bg-swara-accent border-swara-accent text-swara-bg' : 'border-swara-border text-swara-muted hover:text-swara-text'].join(' ')}>
+              className={['px-2.5 py-1 rounded-full text-[0.68rem] font-medium border transition-all', tab === t ? 'bg-swara-accent border-swara-accent text-swara-bg' : 'border-swara-border text-swara-muted hover:text-swara-text'].join(' ')}>
               {t}
             </button>
           ))}
@@ -218,7 +290,7 @@ const LibraryPanel = () => {
           </div>
         )}
 
-        {/* ── Global empty state (no albums AND no playlists) ── */}
+        {/* Global empty state */}
         {isGloballyEmpty && (
           <div className="px-4 py-6 flex flex-col items-center gap-2.5 text-center">
             <p className="text-[0.78rem] text-swara-muted">Your library is empty.</p>
@@ -230,146 +302,51 @@ const LibraryPanel = () => {
           </div>
         )}
 
-        {/* ══ Albums tab ══════════════════════════════════════════════════════ */}
-
-        {/* Albums: Grid */}
-        {!isGloballyEmpty && view === 'grid' && tab === 'Albums' && (
-          <div className="grid grid-cols-2 gap-2 px-2 pt-1">
-            {libraryAlbums.map((album) => {
-              const active = location.hash.includes(`/album/${album.id}`);
-              return (
-                <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className={['flex flex-col gap-1 text-left rounded-xl p-1.5 min-w-0 w-full overflow-hidden transition-colors active:scale-[0.97]', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-                  <div className="w-full aspect-square rounded-lg overflow-hidden bg-swara-elevated flex-shrink-0">
-                    <img src={album.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                  </div>
-                  <p className={['text-[0.72rem] font-medium truncate w-full leading-snug', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
-                  <p className="text-[0.64rem] text-swara-muted truncate w-full">{album.composer}</p>
-                </button>
-              );
-            })}
+        {/* ══ ALL TAB ══ */}
+        {tab === 'All' && !isGloballyEmpty && (
+          <div className={view === 'grid' ? gridCls : 'px-2'}>
+            {allItems.map((item) => renderItem(item))}
           </div>
         )}
 
-        {/* Albums: List */}
-        {!isGloballyEmpty && view === 'list' && tab === 'Albums' && (
-          <div className="px-2">
-            {libraryAlbums.map((album) => {
-              const active = location.hash.includes(`/album/${album.id}`);
-              return (
-                <button key={album.id} type="button" onClick={() => navigate(`/album/${album.id}`)}
-                  className={['flex items-center gap-3 w-full px-2 py-3 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-                  <img src={album.coverUrl} alt="" className="w-14 h-14 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
-                  <div className="flex-1 min-w-0">
-                    <p className={['text-[0.88rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{album.title}</p>
-                    <p className="text-[0.76rem] text-swara-muted truncate">{album.composer}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Albums tab — empty (has content elsewhere but no albums) */}
-        {!isGloballyEmpty && tab === 'Albums' && libraryAlbums.length === 0 && (
-          <p className="text-[0.75rem] text-swara-dim text-center py-6 px-4">Add albums to see them here.</p>
-        )}
-
-        {/* ══ Artists tab ═════════════════════════════════════════════════════ */}
-
-        {/* Artists: Grid */}
-        {!isGloballyEmpty && view === 'grid' && tab === 'Artists' && (
-          <div className="grid grid-cols-2 gap-2 px-2 pt-1">
-            {libraryArtists.map((artist) => {
-              const active = location.hash.includes(`/artist/${artist.id}`);
-              return (
-                <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className={['flex flex-col gap-1 items-center text-center rounded-xl p-1.5 min-w-0 w-full overflow-hidden transition-colors active:scale-[0.97]', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-                  <div className="w-full aspect-square rounded-full overflow-hidden bg-swara-elevated flex-shrink-0">
-                    <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                  </div>
-                  <p className={['text-[0.72rem] font-medium truncate w-full leading-snug', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Artists: List */}
-        {!isGloballyEmpty && view === 'list' && tab === 'Artists' && (
-          <div className="px-2">
-            {libraryArtists.map((artist) => {
-              const active = location.hash.includes(`/artist/${artist.id}`);
-              return (
-                <button key={artist.id} type="button" onClick={() => navigate(`/artist/${artist.id}`)}
-                  className={['flex items-center gap-3 w-full px-2 py-3 rounded-xl text-left transition-colors', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-                  <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
-                    <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className={['text-[0.88rem] font-medium truncate', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{artist.name}</p>
-                    <p className="text-[0.76rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Artists tab — empty */}
-        {!isGloballyEmpty && tab === 'Artists' && libraryArtists.length === 0 && (
-          <p className="text-[0.75rem] text-swara-dim text-center py-6 px-4">Add albums to see artists here.</p>
-        )}
-
-        {/* ══ Playlists tab ═══════════════════════════════════════════════════ */}
-
-        {/* Playlists: Grid (always grid in the compact sidebar) */}
+        {/* ══ PLAYLISTS TAB ══ */}
         {tab === 'Playlists' && libraryPlaylists.length > 0 && (
-          <div className="grid grid-cols-2 gap-2 px-2 pt-1">
-            {libraryPlaylists.map((playlist) => {
-              const thumb  = getPlaylistThumb(playlist);
-              const active = location.hash.includes(`/playlist/${playlist.id}`);
-              return (
-                <button key={playlist.id} type="button"
-                  onClick={() => navigate(`/playlist/${playlist.id}`)}
-                  className={['flex flex-col gap-1 text-left rounded-xl p-1.5 min-w-0 w-full overflow-hidden transition-colors active:scale-[0.97]', active ? 'bg-swara-card' : 'hover:bg-swara-card'].join(' ')}>
-                  {/* Artwork */}
-                  <div className="w-full aspect-square rounded-lg overflow-hidden bg-swara-elevated flex-shrink-0 relative">
-                    {thumb ? (
-                      <img src={thumb} alt="" className="w-full h-full object-cover" loading="lazy" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center"
-                        style={{ background: 'linear-gradient(135deg, #1a1422 0%, #221830 50%, #1a1220 100%)' }}>
-                        <svg viewBox="0 0 24 24" width="22" height="22" fill="none"
-                          stroke="rgba(200,169,106,0.35)" strokeWidth="1.25" strokeLinecap="round" aria-hidden="true">
-                          <path d="M9 18V5l12-2v13"/>
-                          <circle cx="6" cy="18" r="3"/>
-                          <circle cx="18" cy="16" r="3"/>
-                        </svg>
-                      </div>
-                    )}
-                  </div>
-                  {/* Labels */}
-                  <p className={['text-[0.72rem] font-medium truncate w-full leading-snug', active ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>
-                    {playlist.title}
-                  </p>
-                  <p className="text-[0.64rem] text-swara-muted truncate w-full">
-                    {playlist.trackCount} {playlist.trackCount === 1 ? 'track' : 'tracks'}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
+          view === 'grid' ? (
+            <div className={gridCls}>
+              {libraryPlaylists.map((pl) => {
+                const active = location.hash.includes(`/playlist/${pl.id}`);
+                return (
+                  <LibraryCard key={pl.id}
+                    title={pl.title}
+                    subtitle={`${pl.trackCount} ${pl.trackCount === 1 ? 'track' : 'tracks'}`}
+                    coverUrl={playlistCoverUrl(pl)} playlistFallback
+                    isActive={active} compact
+                    onClick={() => navigate(`/playlist/${pl.id}`)} />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-2">
+              {libraryPlaylists.map((pl) => {
+                const active = location.hash.includes(`/playlist/${pl.id}`);
+                return (
+                  <LibraryRow key={pl.id}
+                    title={pl.title}
+                    subtitle={`${pl.trackCount} ${pl.trackCount === 1 ? 'track' : 'tracks'}`}
+                    coverUrl={playlistCoverUrl(pl)} playlistFallback
+                    isActive={active} compact showChevron={false}
+                    onClick={() => navigate(`/playlist/${pl.id}`)} />
+                );
+              })}
+            </div>
+          )
         )}
 
-        {/* Playlists tab — empty */}
         {tab === 'Playlists' && libraryPlaylists.length === 0 && (
           <div className="px-4 py-6 flex flex-col items-center gap-2 text-center">
             <div className="w-10 h-10 rounded-xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                <path d="M9 18V5l12-2v13"/>
-                <circle cx="6" cy="18" r="3"/>
-                <circle cx="18" cy="16" r="3"/>
+                <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
               </svg>
             </div>
             <p className="text-[0.78rem] text-swara-muted font-medium">No playlists yet</p>
@@ -379,7 +356,75 @@ const LibraryPanel = () => {
           </div>
         )}
 
-        {/* Browse catalog link at bottom */}
+        {/* ══ ALBUMS TAB ══ */}
+        {tab === 'Albums' && (
+          view === 'grid' ? (
+            <div className={gridCls}>
+              {libraryAlbums.map((album) => {
+                const active = location.hash.includes(`/album/${album.id}`);
+                return (
+                  <LibraryCard key={album.id}
+                    title={album.title} subtitle={album.composer}
+                    coverUrl={album.coverUrl} isActive={active} compact
+                    onClick={() => navigate(`/album/${album.id}`)} />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-2">
+              {libraryAlbums.map((album) => {
+                const active = location.hash.includes(`/album/${album.id}`);
+                return (
+                  <LibraryRow key={album.id}
+                    title={album.title} subtitle={album.composer}
+                    coverUrl={album.coverUrl} isActive={active} compact showChevron={false}
+                    onClick={() => navigate(`/album/${album.id}`)} />
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {tab === 'Albums' && !isGloballyEmpty && libraryAlbums.length === 0 && (
+          <p className="text-[0.75rem] text-swara-dim text-center py-6 px-4">Add albums to see them here.</p>
+        )}
+
+        {/* ══ ARTISTS TAB ══ */}
+        {tab === 'Artists' && (
+          view === 'grid' ? (
+            <div className={gridCls}>
+              {libraryArtists.map((artist) => {
+                const active = location.hash.includes(`/artist/${artist.id}`);
+                return (
+                  <LibraryCard key={artist.id}
+                    title={artist.name} coverUrl={artist.coverUrl}
+                    coverShape="circle" isActive={active} compact
+                    onClick={() => navigate(`/artist/${artist.id}`)} />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-2">
+              {libraryArtists.map((artist) => {
+                const active = location.hash.includes(`/artist/${artist.id}`);
+                return (
+                  <LibraryRow key={artist.id}
+                    title={artist.name}
+                    subtitle={`${artist.albumIds.length} album${artist.albumIds.length !== 1 ? 's' : ''}`}
+                    coverUrl={artist.coverUrl} coverShape="circle"
+                    isActive={active} compact showChevron={false}
+                    onClick={() => navigate(`/artist/${artist.id}`)} />
+                );
+              })}
+            </div>
+          )
+        )}
+
+        {tab === 'Artists' && !isGloballyEmpty && libraryArtists.length === 0 && (
+          <p className="text-[0.75rem] text-swara-dim text-center py-6 px-4">Add albums to see artists here.</p>
+        )}
+
+        {/* Browse catalog link */}
         <div className="px-4 pt-4 pb-2 mt-auto">
           <button type="button" onClick={() => navigate('/search')}
             className="flex items-center gap-2 text-[0.72rem] text-swara-dim hover:text-swara-muted transition-colors w-full">

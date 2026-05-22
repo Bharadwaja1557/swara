@@ -8,8 +8,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLikedStore } from '@/store/likedStore';
+import { trackActions } from '@/lib/trackActions';
 import { formatDuration } from '@/utils/greeting';
 import { slugify } from '@/utils/library';
+import ShuffleIcon from '@/components/ui/ShuffleIcon';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
@@ -20,7 +22,7 @@ const DesktopNowPlaying = () => {
     togglePlay, next, prev, toggleShuffle, toggleRepeat,
     seekTo, setExpanded,
   } = usePlayerStore();
-  const { isLiked, toggleLike } = useLikedStore();
+  const { isLiked } = useLikedStore();
   const navigate = useNavigate();
 
   const [coverErr, setCoverErr] = useState(false);
@@ -122,13 +124,13 @@ const DesktopNowPlaying = () => {
           </p>
 
           {/* Track title + like */}
-          <div className="flex items-start justify-between gap-4 mb-1.5">
+          <div className="flex items-start justify-between gap-4 mb-6">
             <h2 className="text-[1.75rem] font-bold text-swara-text tracking-tight leading-tight font-display flex-1">
               {currentTrack.title}
             </h2>
             <button
               type="button"
-              onClick={() => toggleLike(currentTrack)}
+              onClick={() => trackActions.toggleLike(currentTrack)}
               className={[
                 'w-10 h-10 flex items-center justify-center rounded-full flex-shrink-0 mt-1 transition-colors duration-200',
                 liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted',
@@ -142,8 +144,6 @@ const DesktopNowPlaying = () => {
               </svg>
             </button>
           </div>
-
-          <p className="text-[0.95rem] text-swara-muted mb-6">{currentTrack.artist}</p>
 
           {/* Seek bar */}
           <div className="mb-6">
@@ -174,12 +174,7 @@ const DesktopNowPlaying = () => {
             <button type="button" onClick={toggleShuffle}
               className="w-10 h-10 flex items-center justify-center rounded-full transition-colors"
               style={{ color: isShuffle ? '#c8a96e' : '#5c5650' }} aria-label="Shuffle">
-              <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
-                strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                style={{ opacity: isShuffle ? 1 : 0.45 }}>
-                <polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/>
-                <polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/>
-              </svg>
+              <ShuffleIcon active={isShuffle} size={19} />
             </button>
 
             {/* Prev */}

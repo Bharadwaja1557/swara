@@ -6,6 +6,7 @@ import { trackActions } from '@/lib/trackActions';
 import { formatDuration } from '@/utils/greeting';
 import { slugify } from '@/utils/library';
 import TrackMenuSheet from '@/components/ui/TrackMenuSheet';
+import ShuffleIcon from '@/components/ui/ShuffleIcon';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
@@ -24,10 +25,19 @@ const FullscreenPlayer = () => {
   const [menuOpen,   setMenuOpen]   = useState(false);
   const [coverError, setCoverError] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
-  const touchState = useRef({ startY: 0, startX: 0, dragging: false, locked: false });
+  const touchState   = useRef({ startY: 0, startX: 0, dragging: false, locked: false });
   const containerRef = useRef<HTMLDivElement>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { setCoverError(false); }, [currentTrack?.id]);
+
+  // Reset scroll to top whenever player is opened — prevents stale scroll position
+  // from previous session (Issue 3: scroll persisted across minimize/reopen/queue).
+  useEffect(() => {
+    if (isExpanded) {
+      scrollBodyRef.current?.scrollTo({ top: 0 });
+    }
+  }, [isExpanded]);
 
   // Non-passive touchmove to prevent pull-to-refresh only during dismiss drag
   useEffect(() => {
@@ -153,7 +163,7 @@ const FullscreenPlayer = () => {
         </div>
 
         {/* ── Scrollable body ── */}
-        <div className="flex-1 overflow-y-auto scrollbar-none" style={{ overscrollBehavior: 'contain' }}>
+        <div ref={scrollBodyRef} className="flex-1 overflow-y-auto scrollbar-none" style={{ overscrollBehavior: 'contain' }}>
           <div className="px-8 pb-10">
 
             {/* Cover */}
@@ -222,15 +232,7 @@ const FullscreenPlayer = () => {
               <button type="button" onClick={toggleShuffle}
                 className="flex items-center justify-center w-11 h-11 rounded-full transition-colors duration-200"
                 style={{ color: isShuffle ? '#c8a96e' : '#5c5650' }} aria-label="Shuffle">
-                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
-                  strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-                  style={{ opacity: isShuffle ? 1 : 0.45 }}>
-                  <path d="M2 18h1.4c1.3 0 2.5-.6 3.3-1.7l6.1-8.6c.7-1.1 1.9-1.7 3.3-1.7H22"/>
-                  <path d="m18 2 4 4-4 4"/>
-                  <path d="M2 6h1.9c1.5 0 2.9.9 3.5 2.2"/>
-                  <path d="m18 14 4 4-4 4"/>
-                  <path d="M21.7 16.4c-.3.5-.8.8-1.3 1.1l-.9.5"/>
-                </svg>
+                <ShuffleIcon active={isShuffle} size={20} />
               </button>
 
               {/* Prev */}
