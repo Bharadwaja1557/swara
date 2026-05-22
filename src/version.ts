@@ -13,4 +13,4 @@
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '5.0';
+export const APP_VERSION = '5.4';

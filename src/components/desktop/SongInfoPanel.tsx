@@ -3,10 +3,14 @@
  * Shows current track info: cover, source label, track name,
  * artists, album, and a compact "Next up" queue preview → links to /queue.
  */
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore, getNextTracks } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
+import { useLikedStore } from '@/store/likedStore';
+import { trackActions } from '@/lib/trackActions';
 import { slugify } from '@/utils/library';
+import PlaylistPickerSheet from '@/components/ui/PlaylistPickerSheet';
 import type { QueueContext } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
@@ -25,7 +29,9 @@ const CONTEXT_LABELS: Record<QueueContext['type'], string> = {
 const SongInfoPanel = () => {
   const { currentTrack, isPlaying, queueContext } = usePlayerStore();
   const { albums } = useLibraryStore();
+  const { isLiked } = useLikedStore();
   const navigate = useNavigate();
+  const [playlistOpen, setPlaylistOpen] = useState(false);
 
   const nextTracks = getNextTracks(5);
   const currentAlbum = currentTrack
@@ -74,10 +80,51 @@ const SongInfoPanel = () => {
 
         {/* Track info */}
         <div className="mb-4">
-          <h3 className="text-[1.02rem] font-bold text-swara-text tracking-tight leading-snug mb-0.5 font-display line-clamp-2">
+          <h3 className="text-[1.02rem] font-bold text-swara-text tracking-tight leading-snug mb-2.5 font-display line-clamp-2">
             {currentTrack.title}
           </h3>
-          <p className="text-[0.82rem] text-swara-muted truncate">{currentTrack.artist}</p>
+
+          {/* Action row — Like + Add to Playlist.
+              Like uses trackActions so the toast fires.
+              Add-to-Playlist opens PlaylistPickerSheet (same sheet as TrackMenuSheet). */}
+          <div className="flex items-center gap-1.5">
+            {/* Like */}
+            <button
+              type="button"
+              onClick={() => trackActions.toggleLike(currentTrack)}
+              className={[
+                'flex items-center gap-1.5 h-7 px-2.5 rounded-full border text-[0.72rem] font-medium transition-all duration-200',
+                isLiked(currentTrack.id)
+                  ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                  : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
+              ].join(' ')}
+              aria-label={isLiked(currentTrack.id) ? 'Unlike' : 'Like'}
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12"
+                fill={isLiked(currentTrack.id) ? 'currentColor' : 'none'}
+                stroke="currentColor" strokeWidth="1.75"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+              </svg>
+              {isLiked(currentTrack.id) ? 'Liked' : 'Like'}
+            </button>
+
+            {/* Add to Playlist */}
+            <button
+              type="button"
+              onClick={() => setPlaylistOpen(true)}
+              className="flex items-center gap-1.5 h-7 px-2.5 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all duration-200"
+              aria-label="Add to playlist"
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12" fill="none"
+                stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+              Playlist
+            </button>
+          </div>
         </div>
 
         {/* Artists section */}
@@ -164,6 +211,14 @@ const SongInfoPanel = () => {
           </div>
         )}
       </div>
+
+      {/* Playlist picker — mounted once the button is first clicked */}
+      <PlaylistPickerSheet
+        isOpen={playlistOpen}
+        onClose={() => setPlaylistOpen(false)}
+        trackId={currentTrack.id}
+        trackTitle={currentTrack.title}
+      />
     </aside>
   );
 };
