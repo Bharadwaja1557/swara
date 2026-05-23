@@ -15,7 +15,7 @@ const DesktopPlayer = () => {
     progress, duration,
     togglePlay, next, prev,
     toggleShuffle, toggleRepeat,
-    seekTo, setExpanded,
+    seekTo, isExpanded, toggleFullscreen,
   } = usePlayerStore();
 
   const [volume, setVolume]   = useState(() => getAudioVolume());
@@ -76,14 +76,14 @@ const DesktopPlayer = () => {
 
         {/* LEFT — cover + track info */}
         <div className="flex items-center gap-3 w-[22%] min-w-0 flex-shrink-0">
-          <button type="button" onClick={() => setExpanded(true)} aria-label="Open now playing">
+          <button type="button" onClick={toggleFullscreen} aria-label="Open now playing">
             <img src={coverSrc} alt={currentTrack.album}
               className="w-12 h-12 rounded-xl object-cover bg-swara-elevated flex-shrink-0 hover:opacity-80 transition-opacity"
               loading="eager"
               onError={() => setCoverErr(true)} />
           </button>
           <div className="flex-1 min-w-0">
-            <button type="button" onClick={() => setExpanded(true)}
+            <button type="button" onClick={toggleFullscreen}
               className="block w-full text-left hover:text-swara-accent transition-colors">
               <p className="text-[0.92rem] font-semibold text-swara-text truncate leading-snug">{currentTrack.title}</p>
               <p className="text-[0.76rem] text-swara-muted truncate">{currentTrack.artist}</p>
@@ -191,13 +191,22 @@ const DesktopPlayer = () => {
             </div>
           </div>
 
-          {/* Fullscreen / open now playing */}
-          <button type="button" onClick={() => setExpanded(true)}
+          {/* Fullscreen toggle — expand when closed, collapse when open */}
+          <button type="button" onClick={toggleFullscreen}
             className="w-8 h-8 flex items-center justify-center rounded-full text-swara-muted hover:text-swara-text transition-colors"
-            aria-label="Open now playing">
-            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
-            </svg>
+            aria-label={isExpanded ? 'Close now playing' : 'Open now playing'}
+            aria-pressed={isExpanded}>
+            {isExpanded ? (
+              /* Collapse / minimize icon */
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 3v3a2 2 0 01-2 2H3m18 0h-3a2 2 0 01-2-2V3m0 18v-3a2 2 0 012-2h3M3 16h3a2 2 0 012 2v3"/>
+              </svg>
+            ) : (
+              /* Expand / fullscreen icon */
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/>
+              </svg>
+            )}
           </button>
         </div>
 

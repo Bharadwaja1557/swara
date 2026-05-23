@@ -16,16 +16,19 @@ const AlbumPage = () => {
   const navigate  = useNavigate();
   const { albums, loaded, loadAlbumTracks } = useLibraryStore();
 
-  // Fine-grained selectors: AlbumPage only needs these two action refs.
-  // Without selectors the page re-renders on every progress tick (~4×/sec),
-  // bypassing memo on all 25 TrackRow children unnecessarily.
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState<string | null>(null);
-  const [coverErr,   setCoverErr]   = useState(false);
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState<string | null>(null);
+  const [coverErr, setCoverErr] = useState(false);
 
-  // Global shuffle state — synchronized across all player surfaces (Issue 7)
+  // Global shuffle state — synchronized across all player surfaces.
+  // usePlayerStore selector: fine-grained, no re-render on progress ticks.
   const isShuffle    = usePlayerStore((s) => s.isShuffle);
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
+
+  // Zustand subscription — must be unconditional regardless of album/loaded state.
+  const hasAlbum = useUserLibraryStore((s) => s.hasAlbum);
+
+  // ── Effects — all unconditional ────────────────────────────────────────────
 
   useEffect(() => {
     if (!id || !loaded) return;
@@ -38,42 +41,23 @@ const AlbumPage = () => {
       .finally(() => setLoading(false));
   }, [id, loaded]); // eslint-disable-line
 
-  // Dep is `id` (route param), not `album?.id`.
-  // Using album?.id required album to be resolved before this hook — which
-  // forced const album above the !loaded guard. Using id is semantically
-  // identical: the cover error resets whenever the route changes, which is
-  // exactly when the displayed album changes. Avoids the pre-guard lookup.
   useEffect(() => { setCoverErr(false); }, [id]);
 
-  // ── Guard 1: library not bootstrapped ──────────────────────────────────────
-  // On hard refresh or direct deep-link, `loaded` is false and `albums` is []
-  // at the first render. Return a spinner — do NOT attempt albums.find() yet,
-  // it would always return undefined and the page would flash "not found"
-  // before any data arrives.
-  if (!loaded) return (
-    <div className="flex items-center justify-center min-h-[60vh]">
-      <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
-    </div>
-  );
+  // ── Derived state — computed after all hooks, before guards ───────────────
+  // album may be undefined at this point (before loaded or genuinely missing).
+  // All callbacks below guard against this with early returns inside them.
+  const album      = loaded ? albums.find((a) => a.id === id) : undefined;
+  const tracks     = album?.tracks ?? [];
+  const coverSrc   = coverErr || !album?.coverUrl ? PH : album.coverUrl;
+  const composerId = album ? slugify(album.composer) : '';
+  const inLibrary  = album ? hasAlbum(album.id) : false;
 
-  // ── Guard 2: album existence ────────────────────────────────────────────────
-  // Only reached after loaded === true. If the album genuinely doesn't exist
-  // in the catalog it shows "not found". No race with hydration.
-  const album = albums.find((a) => a.id === id);
-
-  if (!album) return (
-    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
-      <p className="text-swara-muted text-sm">Album not found</p>
-      <button type="button" onClick={() => navigate(-1)} className="text-swara-accent text-sm">Go back</button>
-    </div>
-  );
-
-  const tracks    = album.tracks;
-  const coverSrc  = coverErr || !album.coverUrl ? PH : album.coverUrl;
-  const composerId = slugify(album.composer);
-
+  // ── Callbacks — always declared, guard internally ─────────────────────────
+  // These MUST come before any conditional return. Their deps (album, tracks,
+  // isShuffle) may be undefined/empty on the loading render — the internal
+  // guards handle that safely.
   const handlePlay = useCallback(() => {
-    if (!tracks.length) return;
+    if (!album || !tracks.length) return;
     if (isShuffle) {
       const shuffled = [...tracks].sort(() => Math.random() - 0.5);
       trackActions.playManual(shuffled, shuffled[0]);
@@ -82,12 +66,28 @@ const AlbumPage = () => {
     }
   }, [tracks, isShuffle, album]);
 
-  const { hasAlbum } = useUserLibraryStore();
-  const inLibrary = hasAlbum(album.id);
-
   const handleToggleLibrary = useCallback(() => {
+    if (!album) return;
     trackActions.toggleAlbumLibrary(album, tracks);
   }, [album, tracks]);
+
+  // ── Guard 1: library not bootstrapped ──────────────────────────────────────
+  // ALL hooks have now executed unconditionally above. Safe to return early.
+  if (!loaded) return (
+    <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="w-5 h-5 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
+    </div>
+  );
+
+  // ── Guard 2: album existence ────────────────────────────────────────────────
+  if (!album) return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <p className="text-swara-muted text-sm">Album not found</p>
+      <button type="button" onClick={() => navigate(-1)} className="text-swara-accent text-sm">Go back</button>
+    </div>
+  );
+
+  // ── Main render ─────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
@@ -102,10 +102,7 @@ const AlbumPage = () => {
         </button>
       </div>
 
-      {/* ── Desktop hero: cover LEFT + meta RIGHT ── */}
       <div className="px-6 lg:px-10">
-
-        {/* Hero wrapper: stacked on mobile, side-by-side on desktop */}
         <div className="flex flex-col lg:flex-row lg:items-end lg:gap-10 mb-4 lg:mb-8">
 
           {/* Cover */}
@@ -117,20 +114,16 @@ const AlbumPage = () => {
             </div>
           </div>
 
-          {/* Meta — stacks below cover on mobile, beside it on desktop */}
+          {/* Meta */}
           <div className="lg:flex-1 lg:min-w-0 lg:pb-1">
-            {/* Small label on desktop */}
             <p className="hidden lg:block text-[0.65rem] font-semibold tracking-[0.14em] uppercase text-swara-dim mb-2">Album</p>
-
             <h1 className="text-[1.3rem] lg:text-[2.6rem] font-bold text-swara-text tracking-tight font-display mb-0.5 lg:mb-2 lg:leading-none">
               {album.title}
             </h1>
-
             <button type="button" onClick={() => navigate(`/artist/${composerId}`)}
               className="text-[0.88rem] lg:text-[1.1rem] text-swara-accent font-medium hover:text-swara-accent-bright transition-colors block">
               {album.composer}
             </button>
-
             <p className="text-xs lg:text-[0.92rem] text-swara-muted mt-0.5 lg:mt-1.5">{album.year}</p>
           </div>
         </div>

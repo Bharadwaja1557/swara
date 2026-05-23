@@ -160,6 +160,7 @@ function getAudio(): HTMLAudioElement {
   if (!_audio) {
     _audio = new Audio();
     _audio.preload = 'metadata';
+    _audio.volume  = _readPersistedVolume(); // restore before any track loads
     _setupListeners(_audio);
   }
   return _audio;
@@ -464,6 +465,9 @@ export interface PlayerState extends PlayerReactState {
   toggleShuffle:     () => void;
   toggleRepeat:      () => void;
   setExpanded:       (v: boolean) => void;
+  openFullscreen:    () => void;
+  closeFullscreen:   () => void;
+  toggleFullscreen:  () => void;
   setQueueSource:    (source: QueueSource) => void;
   refreshRecents:    () => void;
 }
@@ -764,7 +768,10 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _savePlayback();
     },
 
-    setExpanded:    (v) => set({ isExpanded: v }),
+    setExpanded:     (v) => set({ isExpanded: v }),
+    openFullscreen:  ()  => set({ isExpanded: true }),
+    closeFullscreen: ()  => set({ isExpanded: false }),
+    toggleFullscreen:()  => set((s) => ({ isExpanded: !s.isExpanded })),
     setQueueSource: (source) => {
       const ctx: QueueContext = { type: source ?? 'unknown' };
       _eng.queueContext = ctx;
@@ -774,14 +781,39 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   };
 });
 
+// ─── Volume persistence ───────────────────────────────────────────────────────
+// Persisted separately from the playback queue so volume is ALWAYS restored,
+// even when there is no saved queue (e.g. first launch after clearing history).
+// Uses a dedicated key so it survives schema migrations cleanly.
+
+const VOLUME_KEY    = 'swara:volume';
+const DEFAULT_VOL   = 1;
+
+function _readPersistedVolume(): number {
+  try {
+    if (typeof window === 'undefined') return DEFAULT_VOL;
+    const raw = localStorage.getItem(VOLUME_KEY);
+    if (raw === null) return DEFAULT_VOL;
+    const v = parseFloat(raw);
+    return isFinite(v) ? Math.max(0, Math.min(1, v)) : DEFAULT_VOL;
+  } catch { return DEFAULT_VOL; }
+}
+
+function _writePersistedVolume(v: number): void {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem(VOLUME_KEY, String(v));
+  } catch {}
+}
+
 // ─── Volume ───────────────────────────────────────────────────────────────────
 
 export function setAudioVolume(vol: number) {
   const clamped = Math.max(0, Math.min(1, vol));
   getAudio().volume = clamped;
-  _savePlayback();
+  _writePersistedVolume(clamped);
+  _savePlayback(); // keep playback schema in sync too
 }
 
 export function getAudioVolume(): number {
-  return _audio?.volume ?? 1;
+  return _audio?.volume ?? _readPersistedVolume();
 }
