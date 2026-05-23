@@ -46,6 +46,9 @@ import type { Track, RepeatMode, QueueContext } from '@/types/music';
 import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
 import { STORAGE_KEY } from '@/lib/persistence/versions';
 import type { SchemaV3 } from '@/lib/persistence/versions';
+import { canBrowserPlay }                          from '@/features/media/canBrowserPlay';
+import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
+import { mediaLogger }                              from '@/features/media/mediaLogger';
 
 /** Backwards-compat alias */
 export type QueueSource = QueueContext['type'] | null;
@@ -202,6 +205,48 @@ function _assertInvariants(): void {
   }
 }
 
+// ── Toast helper (lazy import to avoid circular dep on useToastStore) ────────
+function _showToast(msg: string) {
+  if (!msg) return;
+  import('@/store/useToastStore').then(({ useToastStore }) => {
+    useToastStore.getState().show(msg, 'error');
+  }).catch(() => {});
+}
+
+// ── Skip to next track after error ───────────────────────────────────────────
+// Preserves queue order, shuffle state, repeat state.
+// Prevents infinite skip loops: if every track in the queue fails we stop.
+let _consecutiveErrors = 0;
+const MAX_CONSECUTIVE_ERRORS = 5;
+
+function _skipToNext(reason: 'error') {
+  void reason;
+  const { activeQueue, idx, repeat } = _eng;
+  if (activeQueue.length === 0) return;
+
+  _consecutiveErrors++;
+  if (_consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+    // Entire queue seems unplayable — stop and reset error counter
+    _consecutiveErrors = 0;
+    _sync?.({ isPlaying: false });
+    _savePlayback();
+    return;
+  }
+
+  let nextIdx: number | null = null;
+  if (idx < activeQueue.length - 1)               nextIdx = idx + 1;
+  else if (repeat === 'all' && activeQueue.length > 0) nextIdx = 0;
+
+  if (nextIdx !== null) {
+    _eng.idx = nextIdx;
+    mediaLogger.trackSkipped(activeQueue[idx]?.id ?? 'unknown', 'UNKNOWN_ERROR');
+    _loadAndPlay(activeQueue[nextIdx]);
+  } else {
+    _sync?.({ isPlaying: false });
+    _savePlayback();
+  }
+}
+
 function _setupListeners(a: HTMLAudioElement) {
   a.ontimeupdate = () => {
     const dur  = a.duration || 0;
@@ -220,6 +265,7 @@ function _setupListeners(a: HTMLAudioElement) {
   a.onloadedmetadata = () => _sync?.({ duration: a.duration });
 
   a.onplay  = () => {
+    _consecutiveErrors = 0; // successful play — reset error streak
     _sync?.({ isPlaying: true });
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   };
@@ -250,24 +296,76 @@ function _setupListeners(a: HTMLAudioElement) {
     }
   };
 
-  a.onerror = () => console.error('[Swara] Audio error:', a.error?.message ?? 'unknown');
+  a.onerror = () => {
+    const code    = classifyMediaError(a.error, a.src);
+    const trackId = _eng.activeQueue[_eng.idx]?.id ?? 'unknown';
+    mediaLogger.playError(trackId, code, a.error?.message);
+
+    // Abort errors are user-initiated (src change mid-load) — ignore silently
+    if (code === 'ABORT_ERROR') return;
+
+    // Show user-facing toast for actionable errors
+    const msg = MEDIA_ERROR_MESSAGES[code];
+    if (msg) _showToast(msg);
+
+    // Attempt automatic recovery: skip to next track
+    // This prevents the queue from freezing on a broken asset.
+    _skipToNext('error');
+  };
 }
 
 function _loadAndPlay(track: Track) {
   const a = getAudio();
+
+  // ── Format check before loading ──────────────────────────────────────────
+  // Detect unsupported codecs synchronously — no network request.
+  // If the browser definitely cannot decode this format, skip immediately.
+  if (!canBrowserPlay(track.streamUrl)) {
+    const msg = MEDIA_ERROR_MESSAGES['FORMAT_ERROR'];
+    _showToast(msg);
+    mediaLogger.playError(track.id, 'FORMAT_ERROR', track.streamUrl);
+    _skipToNext('error');
+    return;
+  }
+
+  // ── Load timeout — skip if media doesn't start within 12 seconds ─────────
+  // Catches silently blocked URLs where onerror never fires (some extensions
+  // silently drop requests without returning a network error).
+  let loadTimeout: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    loadTimeout = null;
+    if (a.readyState < 1) { // HAVE_NOTHING — metadata never arrived
+      mediaLogger.timeout(track.id, 12_000);
+      _showToast(MEDIA_ERROR_MESSAGES['TIMEOUT_ERROR']);
+      _skipToNext('error');
+    }
+  }, 12_000);
+
+  // Clear timeout if media loads successfully
+  const clearLoadTimeout = () => {
+    if (loadTimeout) { clearTimeout(loadTimeout); loadTimeout = null; }
+  };
+  a.addEventListener('loadedmetadata', clearLoadTimeout, { once: true });
+  a.addEventListener('canplay',        clearLoadTimeout, { once: true });
+
   a.src = track.streamUrl;
   a.load();
-  a.play().catch((e) => {
-    if (e?.name !== 'NotAllowedError') console.warn('[Swara] play() failed:', e?.message);
+  a.play().catch((e: Error) => {
+    clearLoadTimeout();
+    if (e?.name === 'NotAllowedError') return; // autoplay policy — not an error
+    if (e?.name === 'AbortError')      return; // src changed — not an error
+    mediaLogger.playError(track.id, 'UNKNOWN_ERROR', e?.message);
+    // play() rejection usually means the element errored — onerror will fire
+    // and handle recovery, so we don't double-skip here.
   });
+
   _sync?.({
-    currentTrack:  track,
-    currentIndex:  _eng.idx,
-    isPlaying:     true,
-    progress:      0,
-    duration:      0,
-    queueLength:   _eng.activeQueue.length,
-    queueVersion:  ++_queueVersion,
+    currentTrack: track,
+    currentIndex: _eng.idx,
+    isPlaying:    true,
+    progress:     0,
+    duration:     0,
+    queueLength:  _eng.activeQueue.length,
+    queueVersion: ++_queueVersion,
   });
   _updateMediaSession(track);
   _pushRecent(track.albumId, track.id);

@@ -7,15 +7,16 @@ import type {
   Album,
   Artist,
 } from '@/types/music';
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-const REPO_BASE =
-  'https://raw.githubusercontent.com/gajala-sonic-solutions/m4a-db/main/';
-const LIBRARY_URL = `${REPO_BASE}library.json`;
+import {
+  resolveLibraryUrl,
+  resolveAlbumJsonUrl,
+  resolveAudioUrl,
+  resolveMediaCoverUrl,
+} from '@/features/media';
+import { mediaLogger } from '@/features/media';
 
 // ─── In-memory caches ─────────────────────────────────────────────────────────
 let libraryCache: { albums: Album[]; artists: Artist[] } | null = null;
-// albumId → Track[]
 const albumTracksCache = new Map<string, Track[]>();
 
 // ─── Slugify ──────────────────────────────────────────────────────────────────
@@ -26,21 +27,49 @@ export function slugify(str: string): string {
     .replace(/^-|-$/g, '');
 }
 
-// ─── Normalize artist name (replace underscores with spaces) ──────────────────
+// ─── Normalize artist name ────────────────────────────────────────────────────
 function normalizeArtistName(name: string): string {
   return name.replace(/_/g, ' ');
+}
+
+// ─── Detect likely-blocked fetch ─────────────────────────────────────────────
+// A blocked fetch either rejects with TypeError (network error) or returns
+// a response with status 0 (opaque). We can't distinguish from 404 at runtime,
+// but the combination of a github URL + TypeError strongly implies a block.
+function isLikelyBlocked(url: string, err: unknown): boolean {
+  return (
+    typeof url === 'string' &&
+    (url.includes('githubusercontent.com') || url.includes('github.com')) &&
+    err instanceof TypeError // network errors come as TypeError in fetch
+  );
+}
+
+// ─── Resilient fetch — one retry, block detection ────────────────────────────
+async function fetchWithFallback(url: string, label: string): Promise<Response> {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      mediaLogger.fetchError(url, res.status, false);
+      throw new Error(`${label}: HTTP ${res.status}`);
+    }
+    return res;
+  } catch (err) {
+    const blocked = isLikelyBlocked(url, err);
+    mediaLogger.fetchError(url, undefined, blocked);
+    throw err;
+  }
 }
 
 // ─── Build Album stub from raw library entry ──────────────────────────────────
 function buildAlbumStub(raw: RawLibraryAlbum): Album {
   return {
-    id: raw.id,
-    title: raw.title,
-    composer: normalizeArtistName(raw.artist),
-    year: raw.year,
-    coverUrl: raw.cover,
-    tracks: [],
-    trackCount: 0,        // updated after tracks are fetched
+    id:         raw.id,
+    title:      raw.title,
+    composer:   normalizeArtistName(raw.artist),
+    year:       raw.year,
+    coverUrl:   resolveMediaCoverUrl(raw.cover),
+    tracks:     [],
+    trackCount: 0,
     tracksFile: raw.tracksFile,
   };
 }
@@ -48,18 +77,18 @@ function buildAlbumStub(raw: RawLibraryAlbum): Album {
 // ─── Normalize a raw track into a Track ───────────────────────────────────────
 function normalizeTrack(rt: RawLibraryTrack, album: Album): Track {
   return {
-    id: `${album.id}--${rt.track}`,
-    title: rt.title,
-    artists: rt.artists,
-    artist: rt.artists.join(', '),
-    album: album.title,
-    albumId: album.id,
+    id:          `${album.id}--${rt.track}`,
+    title:       rt.title,
+    artists:     rt.artists,
+    artist:      rt.artists.join(', '),
+    album:       album.title,
+    albumId:     album.id,
     trackNumber: rt.track,
-    coverUrl: album.coverUrl,
-    streamUrl: rt.url,
-    year: album.year,
-    composer: album.composer,
-    duration: 0,
+    coverUrl:    album.coverUrl,
+    streamUrl:   resolveAudioUrl(rt.url),
+    year:        album.year,
+    composer:    album.composer,
+    duration:    0,
   };
 }
 
@@ -68,42 +97,39 @@ export function buildArtistIndex(albums: Album[]): Artist[] {
   const map = new Map<string, Artist>();
 
   for (const album of albums) {
-    // Register composer as an artist
     const composerId = slugify(album.composer);
     if (!map.has(composerId)) {
       map.set(composerId, {
-        id: composerId,
-        name: album.composer,
-        trackIds: [],
-        albumIds: [],
+        id:               composerId,
+        name:             album.composer,
+        trackIds:         [],
+        albumIds:         [],
         composerAlbumIds: [],
-        coverUrl: album.coverUrl,
+        coverUrl:         album.coverUrl,
       });
     }
     const composerEntry = map.get(composerId)!;
-    if (!composerEntry.composerAlbumIds.includes(album.id)) {
+    if (!composerEntry.composerAlbumIds.includes(album.id))
       composerEntry.composerAlbumIds.push(album.id);
-    }
-    if (!composerEntry.albumIds.includes(album.id)) {
+    if (!composerEntry.albumIds.includes(album.id))
       composerEntry.albumIds.push(album.id);
-    }
 
     for (const track of album.tracks) {
       for (const artistName of track.artists) {
         const artistId = slugify(artistName);
         if (!map.has(artistId)) {
           map.set(artistId, {
-            id: artistId,
-            name: artistName,
-            trackIds: [],
-            albumIds: [],
+            id:               artistId,
+            name:             artistName,
+            trackIds:         [],
+            albumIds:         [],
             composerAlbumIds: [],
-            coverUrl: album.coverUrl,
+            coverUrl:         album.coverUrl,
           });
         }
         const entry = map.get(artistId)!;
         if (!entry.trackIds.includes(track.id)) entry.trackIds.push(track.id);
-        if (!entry.albumIds.includes(album.id)) entry.albumIds.push(album.id);
+        if (!entry.albumIds.includes(album.id))  entry.albumIds.push(album.id);
       }
     }
   }
@@ -111,60 +137,49 @@ export function buildArtistIndex(albums: Album[]): Artist[] {
   return Array.from(map.values());
 }
 
-// ─── Fetch library.json → Album stubs (no tracks yet) ────────────────────────
+// ─── Fetch library.json ───────────────────────────────────────────────────────
 export async function fetchLibrary(): Promise<{
   albums: Album[];
   tracks: Track[];
   artists: Artist[];
 }> {
-  // Return from cache if available
   if (libraryCache) {
-    const cachedTracks = Array.from(albumTracksCache.values()).flat();
     return {
-      albums: libraryCache.albums,
-      tracks: cachedTracks,
+      albums:  libraryCache.albums,
+      tracks:  Array.from(albumTracksCache.values()).flat(),
       artists: libraryCache.artists,
     };
   }
 
-  const res = await fetch(LIBRARY_URL);
-  if (!res.ok) throw new Error('Unable to load music library');
-
+  const url = resolveLibraryUrl();
+  const res = await fetchWithFallback(url, 'library.json');
   const raw: RawLibrary = await res.json();
-  const albums = raw.albums.map(buildAlbumStub);
-  const artists = buildArtistIndex(albums);
 
-  libraryCache = { albums, artists };
+  const albums  = raw.albums.map(buildAlbumStub);
+  const artists = buildArtistIndex(albums);
+  libraryCache  = { albums, artists };
 
   return { albums, tracks: [], artists };
 }
 
 // ─── Fetch tracks for a single album (lazy, cached) ──────────────────────────
 export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
-  if (!album.tracksFile) {
-    throw new Error(`Album ${album.id} has no tracksFile`);
-  }
+  if (!album.tracksFile) throw new Error(`Album ${album.id} has no tracksFile`);
+  if (albumTracksCache.has(album.id)) return albumTracksCache.get(album.id)!;
 
-  // Return from cache
-  if (albumTracksCache.has(album.id)) {
-    return albumTracksCache.get(album.id)!;
-  }
-
-  const url = `${REPO_BASE}${album.tracksFile}`;
-  const res = await fetch(url);
-  if (!res.ok) {
-    throw new Error(`Failed to load tracks for "${album.title}": ${res.status}`);
-  }
-
+  const url = resolveAlbumJsonUrl(album.tracksFile);
+  const res = await fetchWithFallback(url, `album:${album.id}`);
   const data: RawAlbumFile = await res.json();
-  const tracks = (data.tracks ?? []).map((rt) => normalizeTrack(rt, album));
 
+  const tracks = (data.tracks ?? []).map((rt) => normalizeTrack(rt, album));
   albumTracksCache.set(album.id, tracks);
   return tracks;
 }
 
-// ─── Clear caches (for testing / forced refresh) ─────────────────────────────
+// ─── Clear caches ─────────────────────────────────────────────────────────────
 export function clearLibraryCache(): void {
   libraryCache = null;
   albumTracksCache.clear();
 }
+
+
