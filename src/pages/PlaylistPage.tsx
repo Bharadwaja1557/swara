@@ -25,7 +25,7 @@ import { useLibraryStore }    from '@/store/libraryStore';
 import { usePlaylistStore }   from '@/store/usePlaylistStore';
 import { trackActions }       from '@/lib/trackActions';
 import SongRow                from '@/components/ui/SongRow';
-import PlaylistCover          from '@/features/playlists/PlaylistCover';
+import PlaylistArtwork        from '@/features/playlists/PlaylistArtwork';
 import PlaylistEditModal      from '@/features/playlists/PlaylistEditModal';
 import ShuffleIcon            from '@/components/ui/ShuffleIcon';
 import type { Track }         from '@/types/music';
@@ -114,14 +114,14 @@ const PlaylistPage = () => {
 
           {/* Cover */}
           <div className="flex justify-center lg:justify-start mb-5 lg:mb-0 flex-shrink-0">
-            <PlaylistCover
-              coverImageUrl={playlist?.coverImageUrl}
-              coverId={playlist?.coverId}
-              title={playlist?.title}
-              size={0}
-              className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl"
-              style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
-            />
+            {playlist && (
+              <PlaylistArtwork
+                playlist={playlist}
+                size={0}
+                className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl"
+                style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+              />
+            )}
           </div>
 
           {/* Meta */}

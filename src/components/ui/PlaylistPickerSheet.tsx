@@ -15,6 +15,7 @@
 import { useState } from 'react';
 import BottomSheet from '@/components/ui/BottomSheet';
 import { usePlaylistStore } from '@/store/usePlaylistStore';
+import PlaylistArtwork from '@/features/playlists/PlaylistArtwork';
 
 interface PlaylistPickerSheetProps {
   isOpen:   boolean;
@@ -141,19 +142,9 @@ const PlaylistPickerSheet = ({ isOpen, onClose, trackId, trackTitle }: PlaylistP
                 added ? 'opacity-70 cursor-default' : 'hover:bg-white/5 active:bg-white/10',
               ].join(' ')}
             >
-              {/* Playlist thumbnail */}
-              <div
-                className="w-10 h-10 rounded-lg flex-shrink-0 flex items-center justify-center bg-swara-elevated"
-                style={{ background: playlist.coverImageUrl ? undefined : 'rgba(200,169,106,0.12)' }}
-              >
-                {playlist.coverImageUrl ? (
-                  <img src={playlist.coverImageUrl} alt="" className="w-full h-full rounded-lg object-cover" />
-                ) : (
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="rgba(200,169,106,0.6)" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
-                    <path d="M9 18V5l12-2v13"/>
-                    <circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
-                  </svg>
-                )}
+              {/* Playlist thumbnail — uses canonical PlaylistArtwork for consistent cover */}
+              <div className="w-10 h-10 rounded-lg flex-shrink-0 overflow-hidden">
+                <PlaylistArtwork playlist={playlist} size={0} className="w-full h-full" />
               </div>
 
               <div className="flex-1 min-w-0">

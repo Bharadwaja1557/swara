@@ -102,9 +102,9 @@ const RenderableGrid = ({
         key={item.key}
         title={item.title}
         subtitle={item.subtitle}
-        coverUrl={item.imageUrl}
+        coverUrl={item.playlist ? undefined : item.imageUrl}
+        playlist={item.playlist}
         coverShape={item.coverShape}
-        playlistFallback={item.playlistFallback}
         onClick={() => onNavigate(item.route)}
       />
     ))}
@@ -121,9 +121,9 @@ const RenderableList = ({
         title={item.title}
         subtitle={item.subtitle}
         tertiary={item.tertiary}
-        coverUrl={item.imageUrl}
+        coverUrl={item.playlist ? undefined : item.imageUrl}
+        playlist={item.playlist}
         coverShape={item.coverShape}
-        playlistFallback={item.playlistFallback}
         showChevron
         onClick={() => onNavigate(item.route)}
       />

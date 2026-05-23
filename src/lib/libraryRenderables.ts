@@ -42,12 +42,13 @@ export interface LibraryRenderable {
   title:             string;
   subtitle?:         string;
   tertiary?:         string;
+  /** Cover image URL — set for albums and artists. NOT used for playlists. */
   imageUrl?:         string;
-  /** Built-in cover ID key for playlists — e.g. 'aurora'. */
-  coverId?:          string;
   coverShape:        'square' | 'circle';
-  /** Render the music-note gradient placeholder when imageUrl is missing. */
+  /** True for playlists — signals LibraryCard/LibraryRow to use PlaylistArtwork. */
   playlistFallback:  boolean;
+  /** Raw playlist object — present when type === 'playlist'. Used by PlaylistArtwork. */
+  playlist?:         Playlist;
   /** Milliseconds timestamp for "Recently Added" sort. */
   sortDate:          number;
   /** Pre-lowercased title/name string for locale-aware A-Z / Z-A sort. */
@@ -57,16 +58,6 @@ export interface LibraryRenderable {
 export type LibrarySortMode = 'Recently Added' | 'A-Z' | 'Z-A';
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
-
-/** Resolve the best available thumbnail URL for a playlist. */
-export function playlistImageUrl(
-  playlist: Playlist,
-  trackMap: Map<string, Track>,
-): string | undefined {
-  if (playlist.coverImageUrl) return playlist.coverImageUrl;
-  if (playlist.trackIds.length > 0) return trackMap.get(playlist.trackIds[0])?.coverUrl;
-  return undefined;
-}
 
 /** Convert a single Album to a LibraryRenderable. */
 function fromAlbum(album: Album, addedAt: number): LibraryRenderable {
@@ -104,8 +95,14 @@ function fromArtist(artist: Artist, addedAt: number): LibraryRenderable {
   };
 }
 
-/** Convert a single Playlist to a LibraryRenderable. */
-function fromPlaylist(playlist: Playlist, trackMap: Map<string, Track>): LibraryRenderable {
+/**
+ * Convert a single Playlist to a LibraryRenderable.
+ * The raw playlist object is carried along so PlaylistArtwork can resolve
+ * the correct cover (uploaded → preset → collage → single → placeholder)
+ * using the canonical resolvePlaylistArtwork() logic.
+ * imageUrl is NOT set here — PlaylistArtwork reads trackMap itself.
+ */
+function fromPlaylist(playlist: Playlist): LibraryRenderable {
   const count = playlist.trackCount;
   return {
     key:              `playlist-${playlist.id}`,
@@ -114,10 +111,9 @@ function fromPlaylist(playlist: Playlist, trackMap: Map<string, Track>): Library
     route:            `/playlist/${playlist.id}`,
     title:            playlist.title,
     subtitle:         `${count} ${count === 1 ? 'track' : 'tracks'}`,
-    imageUrl:         playlistImageUrl(playlist, trackMap),
-    coverId:          playlist.coverId,
     coverShape:       'square',
     playlistFallback: true,
+    playlist:         playlist,
     sortDate:         new Date(playlist.updatedAt).getTime(),
     sortName:         playlist.title,
   };
@@ -144,7 +140,9 @@ function sortRenderables(
  * @param albumMap    Catalog album map (id → Album)
  * @param artistMap   Catalog artist map (id → Artist)
  * @param playlists   All user playlists from usePlaylistStore
- * @param trackMap    Catalog track map (id → Track) — for playlist cover resolution
+ * @param trackMap    Catalog track map — kept in signature for API compatibility
+ *                    but playlist cover resolution now happens in PlaylistArtwork
+ *                    at render time (so the collage is always fresh).
  * @param mode        Sort mode
  * @param include     Which entity types to include. Defaults to all three.
  */
@@ -157,6 +155,10 @@ export function buildRenderables(
   mode:      LibrarySortMode,
   include:   Set<LibraryEntityType> = new Set(['album', 'artist', 'playlist']),
 ): LibraryRenderable[] {
+  // trackMap is accepted for API compatibility; playlist covers are resolved
+  // at render time by PlaylistArtwork using the live store subscription.
+  void trackMap;
+
   const items: LibraryRenderable[] = [];
   const seenArtistIds = new Set<string>();
 
@@ -182,7 +184,7 @@ export function buildRenderables(
 
   if (include.has('playlist')) {
     for (const pl of playlists) {
-      items.push(fromPlaylist(pl, trackMap));
+      items.push(fromPlaylist(pl));
     }
   }
 

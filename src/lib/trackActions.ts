@@ -14,10 +14,11 @@ import type { Track, Album, Artist } from '@/types/music';
 import { useToastStore }       from '@/store/useToastStore';
 import { useLikedStore }       from '@/store/likedStore';
 import { usePlayerStore }      from '@/store/playerStore';
+import { useLibraryStore }     from '@/store/libraryStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import type { ToastIcon }      from '@/store/useToastStore';
 import type { Playlist }       from '@/store/usePlaylistStore';
-import { resolveCoverUrl }     from '@/features/playlists/coverRegistry';
+import { resolvePlaylistArtwork }    from '@/features/playlists/resolvePlaylistArtwork';
 import {
   buildAlbumQueue,
   buildArtistQueue,
@@ -94,8 +95,12 @@ export const trackActions = {
   /** Play a playlist, starting from an optional track */
   playFromPlaylist: (tracks: Track[], playlist: Playlist, startTrack?: Track): void => {
     if (!tracks.length) return;
-    // Resolve cover URL through the registry so BASE_URL is always applied.
-    const artworkUrl = playlist.coverImageUrl ?? resolveCoverUrl(playlist.coverId);
+    // Resolve cover URL through the canonical resolver so queue artwork
+    // matches what PlaylistArtwork renders everywhere else.
+    // useLibraryStore is already imported at module init — synchronous access.
+    const { trackMap } = useLibraryStore.getState();
+    const artwork = resolvePlaylistArtwork(playlist, trackMap);
+    const artworkUrl = artwork.url ?? artwork.collageUrls?.[0];
     const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, artworkUrl, startTrack);
     usePlayerStore.getState().playQueue(built);
   },

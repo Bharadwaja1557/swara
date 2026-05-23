@@ -58,9 +58,9 @@ const CompactGrid = ({
         key={item.key}
         title={item.title}
         subtitle={item.subtitle}
-        coverUrl={item.imageUrl}
+        coverUrl={item.playlist ? undefined : item.imageUrl}
+        playlist={item.playlist}
         coverShape={item.coverShape}
-        playlistFallback={item.playlistFallback}
         isActive={activeRoute.includes(item.route)}
         compact
         onClick={() => onNavigate(item.route)}
@@ -78,9 +78,9 @@ const CompactList = ({
         key={item.key}
         title={item.title}
         subtitle={item.subtitle}
-        coverUrl={item.imageUrl}
+        coverUrl={item.playlist ? undefined : item.imageUrl}
+        playlist={item.playlist}
         coverShape={item.coverShape}
-        playlistFallback={item.playlistFallback}
         isActive={activeRoute.includes(item.route)}
         compact
         showChevron={false}
