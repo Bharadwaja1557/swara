@@ -17,7 +17,7 @@
  *   "Edit" button opens PlaylistEditModal (rename + cover variant picker).
  *
  * COVER:
- *   Rendered by PlaylistCover — handles uploaded URL, built-in variants, placeholder.
+ *   Rendered by PlaylistArtwork (src/features/artwork) — adaptive collage,
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -25,7 +25,7 @@ import { useLibraryStore }    from '@/store/libraryStore';
 import { usePlaylistStore }   from '@/store/usePlaylistStore';
 import { trackActions }       from '@/lib/trackActions';
 import SongRow                from '@/components/ui/SongRow';
-import PlaylistArtwork        from '@/features/playlists/PlaylistArtwork';
+import { PlaylistArtwork }      from '@/features/artwork';
 import PlaylistEditModal      from '@/features/playlists/PlaylistEditModal';
 import ShuffleIcon            from '@/components/ui/ShuffleIcon';
 import type { Track }         from '@/types/music';

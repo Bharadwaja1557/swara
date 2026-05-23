@@ -15,7 +15,7 @@
 import { useState } from 'react';
 import BottomSheet from '@/components/ui/BottomSheet';
 import { usePlaylistStore } from '@/store/usePlaylistStore';
-import PlaylistArtwork from '@/features/playlists/PlaylistArtwork';
+import { PlaylistArtwork } from '@/features/artwork';
 
 interface PlaylistPickerSheetProps {
   isOpen:   boolean;

@@ -8,7 +8,7 @@
  * For albums/artists: pass `coverUrl` as before.
  */
 
-import PlaylistArtwork from '@/features/playlists/PlaylistArtwork';
+import { PlaylistArtwork } from '@/features/artwork';
 import type { Playlist } from '@/store/usePlaylistStore';
 
 interface LibraryCardProps {

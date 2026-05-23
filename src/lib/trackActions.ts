@@ -18,7 +18,7 @@ import { useLibraryStore }     from '@/store/libraryStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import type { ToastIcon }      from '@/store/useToastStore';
 import type { Playlist }       from '@/store/usePlaylistStore';
-import { resolvePlaylistArtwork }    from '@/features/playlists/resolvePlaylistArtwork';
+import { resolvePlaylistArtwork }    from '@/features/artwork';
 import {
   buildAlbumQueue,
   buildArtistQueue,
