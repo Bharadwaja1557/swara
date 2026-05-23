@@ -17,6 +17,7 @@ import { usePlayerStore }      from '@/store/playerStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import type { ToastIcon }      from '@/store/useToastStore';
 import type { Playlist }       from '@/store/usePlaylistStore';
+import { resolveCoverUrl }     from '@/features/playlists/coverRegistry';
 import {
   buildAlbumQueue,
   buildArtistQueue,
@@ -93,10 +94,8 @@ export const trackActions = {
   /** Play a playlist, starting from an optional track */
   playFromPlaylist: (tracks: Track[], playlist: Playlist, startTrack?: Track): void => {
     if (!tracks.length) return;
-    // Resolve the best available cover URL for the queue context artwork.
-    // Priority: uploaded image → built-in SVG asset path
-    const artworkUrl = playlist.coverImageUrl
-      ?? (playlist.coverId ? `/playlist-covers/${playlist.coverId}.svg` : undefined);
+    // Resolve cover URL through the registry so BASE_URL is always applied.
+    const artworkUrl = playlist.coverImageUrl ?? resolveCoverUrl(playlist.coverId);
     const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, artworkUrl, startTrack);
     usePlayerStore.getState().playQueue(built);
   },
