@@ -22,10 +22,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore }    from '@/store/libraryStore';
+import { usePlayerStore }     from '@/store/playerStore';
 import { usePlaylistStore }   from '@/store/usePlaylistStore';
 import { trackActions }       from '@/lib/trackActions';
 import SongRow                from '@/components/ui/SongRow';
-import { PlaylistArtwork }      from '@/features/artwork';
+import { PlaylistArtwork }    from '@/features/artwork';
 import PlaylistEditModal      from '@/features/playlists/PlaylistEditModal';
 import ShuffleIcon            from '@/components/ui/ShuffleIcon';
 import type { Track }         from '@/types/music';
@@ -42,7 +43,10 @@ const PlaylistPage = () => {
   const [entries,     setEntries]     = useState<PlaylistTrackEntry[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [editOpen,    setEditOpen]    = useState(false);
-  const [isShuffle,   setIsShuffle]   = useState(false);
+
+  // Global shuffle state — synchronized across all player surfaces (Issue 7)
+  const isShuffle    = usePlayerStore((s) => s.isShuffle);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
 
   // Get fresh playlist from store on every render (reflects optimistic updates)
   const playlist = id ? getPlaylist(id) : undefined;
@@ -145,18 +149,20 @@ const PlaylistPage = () => {
               {playlist?.isPublic ? ' · Public' : ''}
             </p>
 
-            {/* Edit link */}
-            <button
-              type="button"
-              onClick={() => setEditOpen(true)}
-              className="mt-2 text-[0.78rem] font-medium text-swara-accent hover:text-swara-accent-bright transition-colors inline-flex items-center gap-1"
-            >
-              <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-              </svg>
-              Edit
-            </button>
+            {/* Action pills — Edit playlist + Reorder */}
+            <div className="flex items-center gap-2 mt-2">
+              <button
+                type="button"
+                onClick={() => setEditOpen(true)}
+                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all"
+              >
+                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                </svg>
+                Edit playlist
+              </button>
+            </div>
           </div>
         </div>
 
@@ -167,8 +173,8 @@ const PlaylistPage = () => {
           </span>
           {trackCount > 0 && (
             <div className="flex items-center gap-2">
-              {/* Shuffle toggle */}
-              <button type="button" onClick={() => setIsShuffle((s) => !s)}
+              {/* Shuffle toggle — global state */}
+              <button type="button" onClick={toggleShuffle}
                 className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', isShuffle ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
                 aria-label={isShuffle ? 'Shuffle on' : 'Shuffle off'}>
                 <ShuffleIcon active={isShuffle} size={18} />
@@ -230,15 +236,12 @@ const PlaylistPage = () => {
         )}
       </div>
 
-      {/* Edit modal — ONLY mounted when open.
-          This is the keyboard bug fix: if the modal were always mounted with
-          isOpen=false, BottomSheet renders children in the DOM and autoFocus
-          would fire on PlaylistPage mount, opening the mobile keyboard. */}
       {playlist && editOpen && (
         <PlaylistEditModal
           playlist={playlist}
           isOpen={editOpen}
           onClose={() => setEditOpen(false)}
+          onDeleted={() => navigate('/library', { replace: true })}
         />
       )}
     </div>

@@ -1,29 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
-import { usePlayerStore } from '@/store/playerStore';
 import { trackActions } from '@/lib/trackActions';
+import SongRow from '@/components/ui/SongRow';
 import type { Track, Album } from '@/types/music';
 
 const INITIAL = 5;
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♫</text></svg>';
 
-// ── PlayingBars — mirrors AlbumPage ──────────────────────────────────────────
-const PlayingBars = () => (
-  <div className="flex gap-[2px] items-end justify-center h-[14px] flex-shrink-0" aria-hidden="true">
-    {[{ h: '55%', delay: '0s' }, { h: '100%', delay: '0.15s' }, { h: '40%', delay: '0.3s' }].map((b, i) => (
-      <span key={i} className="w-[3px] bg-swara-accent rounded-full"
-        style={{ height: b.h, animation: `eq 0.9s ease-in-out ${b.delay} infinite`, transformOrigin: 'bottom' }} />
-    ))}
-  </div>
-);
 
 const ArtistPage = () => {
   const { id }     = useParams<{ id: string }>();
   const navigate   = useNavigate();
   const { artists, tracks, albums, loaded, loadAlbumTracks } = useLibraryStore();
-  const currentTrackId = usePlayerStore((s) => s.currentTrack?.id);
-  const isPlayingStore = usePlayerStore((s) => s.isPlaying);
   const [showAllSongs,   setShowAllSongs]   = useState(false);
   const [showAllAlbums,  setShowAllAlbums]  = useState(false);
 
@@ -118,36 +107,22 @@ const ArtistPage = () => {
             <p className="text-swara-muted text-sm px-2 py-4">No songs found</p>
           ) : (
             <>
-              {visibleSongs.map((track) => {
-                const isActive  = currentTrackId === track.id;
-                const isPlaying = isActive && isPlayingStore;
-                return (
-                  <button key={track.id} type="button"
-                    onClick={() => {
-                      const artist = artists.find((a) => a.id === id);
-                      if (artist) trackActions.playFromArtist(track, artist, artistTracks);
-                      else trackActions.play(track, artistTracks);
-                    }}
-                    className={['flex items-center gap-3 w-full py-2.5 lg:py-3 px-2 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all text-left', isActive ? 'bg-swara-card' : ''].join(' ')}>
-                    <img src={track.coverUrl || PH} alt="" className="w-10 h-10 lg:w-12 lg:h-12 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
-                    <div className="flex-1 min-w-0">
-                      <p className={['text-[0.88rem] lg:text-[0.95rem] font-medium truncate', isActive ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>{track.title}</p>
-                      <p className="text-[0.72rem] lg:text-[0.78rem] text-swara-muted truncate">
-                        {track.album}
-                        {(() => {
-                          const yr = albums.find((alb) => alb.title === track.album)?.year;
-                          return yr ? ` · ${yr}` : '';
-                        })()}
-                      </p>
-                    </div>
-                    {isPlaying ? <PlayingBars /> : (
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" className="text-swara-dim flex-shrink-0" aria-hidden="true">
-                        <polygon points="5 3 19 12 5 21 5 3"/>
-                      </svg>
-                    )}
-                  </button>
-                );
-              })}
+              <ul className="space-y-0">
+                {visibleSongs.map((track) => {
+                  const currentArtist = artists.find((a) => a.id === id);
+                  return (
+                    <SongRow
+                      key={track.id}
+                      track={track}
+                      onPlay={() => {
+                        if (currentArtist) trackActions.playFromArtist(track, currentArtist, artistTracks);
+                        else trackActions.play(track, artistTracks);
+                      }}
+                      menuContext="default"
+                    />
+                  );
+                })}
+              </ul>
               {artistTracks.length > INITIAL && (
                 <button type="button" onClick={() => setShowAllSongs((v) => !v)}
                   className="mt-1 ml-2 text-[0.82rem] font-medium text-swara-accent hover:text-swara-accent-bright transition-colors">

@@ -22,7 +22,8 @@ import { useSearchHistoryStore }    from '@/store/useSearchHistoryStore';
 import { useDesktopSearchStore }    from '@/store/useDesktopSearchStore';
 import { useIsDesktop }             from '@/hooks/useIsDesktop';
 import { trackActions }             from '@/lib/trackActions';
-import type { Track, Album, Artist } from '@/types/music';
+import SongRow                        from '@/components/ui/SongRow';
+import type { Album, Artist } from '@/types/music';
 
 type Filter      = 'All' | 'Tracks' | 'Albums' | 'Artists';
 type BrowseMode  = 'Albums' | 'Artists' | 'Year' | null;
@@ -33,22 +34,6 @@ type AlbumView   = 'grid' | 'list';
 const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
 
 // ─── Sub-rows ─────────────────────────────────────────────────────────────────
-const TrackRow = ({ track, queue, onResultClick, query }: { track: Track; queue: Track[]; onResultClick?: () => void; query: string }) => {
-  return (
-    <button type="button" onClick={() => { onResultClick?.(); trackActions.playFromSearch(track, queue, query); }}
-      className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
-      <img src={track.coverUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
-      <div className="flex-1 min-w-0">
-        <p className="text-[0.88rem] font-medium text-swara-text truncate">{track.title}</p>
-        <p className="text-[0.72rem] text-swara-muted truncate">{track.artist}</p>
-      </div>
-      <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" className="text-swara-dim flex-shrink-0" aria-hidden="true">
-        <polygon points="5 3 19 12 5 21 5 3"/>
-      </svg>
-    </button>
-  );
-};
-
 const AlbumRow = ({ album, onResultClick }: { album: Album; onResultClick?: () => void }) => {
   const navigate = useNavigate();
   return (
@@ -489,9 +474,16 @@ const SearchPage = () => {
                 <>
                   {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
                     <Section title="Tracks">
-                      {matchedTracks.map((t) => (
-                        <TrackRow key={t.id} track={t} queue={matchedTracks} onResultClick={onResultClick} query={effectiveQuery} />
-                      ))}
+                      <ul className="space-y-0">
+                        {matchedTracks.map((t) => (
+                          <SongRow
+                            key={t.id}
+                            track={t}
+                            onPlay={() => { onResultClick?.(); trackActions.playFromSearch(t, matchedTracks, effectiveQuery); }}
+                            menuContext="default"
+                          />
+                        ))}
+                      </ul>
                     </Section>
                   )}
                   {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (

@@ -159,16 +159,19 @@ export const SongRow = memo(({
           </p>
         </div>
 
-        {/* Like + 3-dots — stop click propagation so play isn't triggered */}
+        {/* Action cluster — enlarged invisible hit zone prevents mis-clicks on row.
+            The outer div is the click-stop boundary. Negative margin (-mx-1) compensates
+            for added padding so the visual row width is unchanged. */}
         <div
-          className="flex items-center gap-0.5 flex-shrink-0"
+          className="flex items-center flex-shrink-0 -mr-1"
           onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
         >
           <button
             type="button"
             onClick={() => trackActions.toggleLike(track)}
             className={[
-              'w-9 h-9 flex items-center justify-center rounded-full transition-colors',
+              'w-10 h-10 flex items-center justify-center rounded-full transition-colors',
               liked ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted',
             ].join(' ')}
             aria-label={liked ? 'Unlike' : 'Like'}
@@ -185,7 +188,7 @@ export const SongRow = memo(({
           <button
             type="button"
             onClick={handleOpenMenu}
-            className="w-9 h-9 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
+            className="w-10 h-10 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
             aria-label="Track options"
           >
             <svg viewBox="0 0 24 24" width="17" height="17" fill="currentColor" aria-hidden="true">

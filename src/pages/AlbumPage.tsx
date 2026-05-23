@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore }     from '@/store/libraryStore';
+import { usePlayerStore }      from '@/store/playerStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import { trackActions }        from '@/lib/trackActions';
 import { slugify }             from '@/utils/library';
@@ -21,7 +22,10 @@ const AlbumPage = () => {
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
   const [coverErr,   setCoverErr]   = useState(false);
-  const [isShuffle,  setIsShuffle]  = useState(false);
+
+  // Global shuffle state — synchronized across all player surfaces (Issue 7)
+  const isShuffle    = usePlayerStore((s) => s.isShuffle);
+  const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
 
   useEffect(() => {
     if (!id || !loaded) return;
@@ -68,8 +72,6 @@ const AlbumPage = () => {
   const coverSrc  = coverErr || !album.coverUrl ? PH : album.coverUrl;
   const composerId = slugify(album.composer);
 
-  // useCallback keeps handlePlay reference stable between renders so memo'd
-  // TrackRow children (which receive it indirectly via album) aren't invalidated
   const handlePlay = useCallback(() => {
     if (!tracks.length) return;
     if (isShuffle) {
@@ -158,8 +160,8 @@ const AlbumPage = () => {
               )}
             </button>
 
-            {/* Shuffle toggle */}
-            <button type="button" onClick={() => setIsShuffle((s) => !s)}
+            {/* Shuffle toggle — global state, synced across all player surfaces */}
+            <button type="button" onClick={toggleShuffle}
               className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', isShuffle ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
               aria-label={isShuffle ? 'Shuffle on' : 'Shuffle off'}>
               <ShuffleIcon active={isShuffle} size={18} />
