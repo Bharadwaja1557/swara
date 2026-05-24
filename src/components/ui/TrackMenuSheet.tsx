@@ -1,43 +1,36 @@
 /**
  * TrackMenuSheet — canonical track context menu, used everywhere in the app.
  *
- * ARCHITECTURE:
- *   Single source of truth for track actions. All pages that show track menus
- *   use this component instead of building their own.
+ * UNIFIED ACTION SET (Issue 4):
+ *   Every context shows the same core actions in the same order:
+ *     1. Play Next          ← NEW (Issue 1)
+ *     2. Add to Queue       (omitted in 'queue' context — redundant)
+ *     3. Like / Unlike
+ *     4. Add to Playlist
+ *     5. ─── divider ───
+ *     6. Go to Album
+ *     7. View Artists
+ *     8. ─── divider ───
+ *     9. Hide Song          ← disabled "Coming Soon" (Issue 2)
+ *    10. Remove from Playlist (playlist context only)
  *
- * CONTEXT-AWARE ACTIONS:
- *   The `context` prop controls which actions appear:
+ * CONTEXT-AWARE DIFFERENCES:
+ *   'queue'    → omits "Add to Queue" (track is already in the queue)
+ *   'playlist' → adds "Remove from Playlist" before the Hide Song divider
+ *   All other contexts → full set
  *
- *   'default'   → like, add-to-queue, library, divider, go-to-album, view-artists
- *   'player'    → like, add-to-playlist, library, divider, stash, go-to-album, view-artists
- *   'queue'     → like, divider, go-to-album, view-artists (no add-to-queue — already in queue)
- *   'liked'     → like (toggles unlike), go-to-album, view-artists
- *
- * FUTURE INTEGRATION:
- *   When playlists arrive, add:
- *     context: 'playlist'
- *     → show "Remove from Playlist" instead of add-to-queue
- *   No other files need to change.
- *
- * PROPS:
- *   track        — the Track to act on
- *   albumId      — used to look up full Album for library actions
- *   isOpen       — controls bottom sheet visibility
- *   onClose      — called on dismiss
- *   context      — which action set to render (defaults to 'default')
- *   onNavigate?  — called before any navigation (e.g. to collapse player)
+ * This component is the single source of truth for track actions.
+ * SongRow, QueuePage, FullscreenPlayer, SongInfoPanel all use it.
  */
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLikedStore }       from '@/store/likedStore';
-import { useUserLibraryStore } from '@/store/useUserLibraryStore';
-import { useLibraryStore }     from '@/store/libraryStore';
-import { trackActions }        from '@/lib/trackActions';
-import { slugify }             from '@/utils/library';
-import BottomSheet             from '@/components/ui/BottomSheet';
-import ArtistPickerSheet       from '@/components/ui/ArtistPickerSheet';
-import PlaylistPickerSheet     from '@/components/ui/PlaylistPickerSheet';
-import type { Track }          from '@/types/music';
+import { useLikedStore }   from '@/store/likedStore';
+import { trackActions }    from '@/lib/trackActions';
+import { slugify }         from '@/utils/library';
+import BottomSheet         from '@/components/ui/BottomSheet';
+import ArtistPickerSheet   from '@/components/ui/ArtistPickerSheet';
+import PlaylistPickerSheet from '@/components/ui/PlaylistPickerSheet';
+import type { Track }      from '@/types/music';
 
 export type TrackMenuContext = 'default' | 'player' | 'queue' | 'liked' | 'playlist';
 
@@ -46,17 +39,13 @@ interface TrackMenuSheetProps {
   isOpen:      boolean;
   onClose:     () => void;
   context?:    TrackMenuContext;
-  /** Called before any navigation action so caller can collapse player etc. */
   onNavigate?: () => void;
-  /** Required when context='playlist' — the playlist this track belongs to */
   playlistId?: string;
-  /** Callback when track is removed from playlist (context='playlist') */
   onRemoveFromPlaylist?: (entryId: string) => void;
-  /** Entry ID of this track in the playlist (context='playlist') */
   entryId?: string;
 }
 
-// ── Icon SVGs (inline — no external deps) ────────────────────────────────────
+// ── Icon SVGs ─────────────────────────────────────────────────────────────────
 
 const HeartIcon = ({ filled }: { filled: boolean }) => (
   <svg viewBox="0 0 24 24" width="18" height="18"
@@ -66,10 +55,10 @@ const HeartIcon = ({ filled }: { filled: boolean }) => (
   </svg>
 );
 
-const BookIcon = () => (
+const PlayNextIcon = () => (
   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
-    <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+    <polygon points="5 3 15 12 5 21 5 3"/>
+    <line x1="19" y1="5" x2="19" y2="19"/>
   </svg>
 );
 
@@ -103,6 +92,22 @@ const ArtistIcon = () => (
   </svg>
 );
 
+const HideIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+    <line x1="1" y1="1" x2="23" y2="23"/>
+  </svg>
+);
+
+const RemoveIcon = () => (
+  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="3 6 5 6 21 6"/>
+    <path d="M19 6l-1 14H6L5 6"/>
+    <path d="M10 11v6M14 11v6"/>
+    <path d="M9 6V4h6v2"/>
+  </svg>
+);
+
 // ── MenuItem ─────────────────────────────────────────────────────────────────
 
 const MenuItem = ({ icon, label, onClick, accent }: {
@@ -125,6 +130,24 @@ const MenuItem = ({ icon, label, onClick, accent }: {
   </button>
 );
 
+/** Disabled / Coming Soon variant — muted appearance, no click feedback */
+const MenuItemDisabled = ({ icon, label, badge = 'Coming Soon' }: {
+  icon: React.ReactNode; label: string; badge?: string;
+}) => (
+  <div
+    className="flex items-center gap-4 w-full px-5 py-3.5 text-[0.9rem] font-medium text-left opacity-35 cursor-default select-none"
+    aria-disabled="true"
+  >
+    <span className="w-5 flex items-center justify-center flex-shrink-0 text-swara-muted">
+      {icon}
+    </span>
+    <span className="flex-1 text-swara-text">{label}</span>
+    <span className="text-[0.65rem] font-semibold text-swara-dim bg-swara-elevated px-1.5 py-0.5 rounded-full tracking-wide uppercase">
+      {badge}
+    </span>
+  </div>
+);
+
 const Divider = () => <div className="mx-5 my-1 h-px bg-swara-border" />;
 
 // ── TrackMenuSheet ────────────────────────────────────────────────────────────
@@ -135,13 +158,9 @@ export const TrackMenuSheet = ({
 }: TrackMenuSheetProps) => {
   const navigate = useNavigate();
   const liked    = useLikedStore((s) => s.isLiked(track.id));
-  const { albums } = useLibraryStore();
-  const inLib      = useUserLibraryStore((s) => s.hasTrack(track.albumId, track.id));
 
-  const [artistPickerOpen,   setArtistPickerOpen]   = useState(false);
-  const [playlistPickerOpen, setPlaylistPickerOpen]  = useState(false);
-
-  const albumFull = albums.find((a) => a.id === track.albumId);
+  const [artistPickerOpen,   setArtistPickerOpen]  = useState(false);
+  const [playlistPickerOpen, setPlaylistPickerOpen] = useState(false);
 
   const hasMultipleArtists =
     track.artists.length > 1 ||
@@ -153,7 +172,13 @@ export const TrackMenuSheet = ({
     setTimeout(() => navigate(path), delay);
   };
 
-  const handleGoToAlbum = () => doNavigate(`/album/${track.albumId}`);
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handlePlayNext      = () => { trackActions.playNext(track); onClose(); };
+  const handleAddToQueue    = () => { trackActions.addToQueue(track); onClose(); };
+  const handleLike          = () => { trackActions.toggleLike(track); };
+  const handleAddToPlaylist = () => { onClose(); setPlaylistPickerOpen(true); };
+  const handleGoToAlbum     = () => doNavigate(`/album/${track.albumId}`);
 
   const handleViewArtists = () => {
     if (hasMultipleArtists) {
@@ -164,118 +189,13 @@ export const TrackMenuSheet = ({
     }
   };
 
-  const handleLike = () => {
-    trackActions.toggleLike(track);
-  };
+  // ── Canonical action set ─────────────────────────────────────────────────
+  // All contexts share the same skeleton. Only two differences:
+  //   1. 'queue' context: omit "Add to Queue" (already in queue)
+  //   2. 'playlist' context: show "Remove from Playlist"
 
-  const handleLibrary = () => {
-    if (!albumFull) return;
-    trackActions.toggleTrackLibrary(track, albumFull);
-    onClose();
-  };
-
-  const handleAddToQueue = () => {
-    trackActions.addToQueue(track);
-    onClose();
-  };
-
-  const handleAddToPlaylist = () => {
-    onClose();
-    setPlaylistPickerOpen(true);
-  };
-
-  // ── Action sets by context ────────────────────────────────────────────────
-
-  const renderActions = () => {
-    switch (context) {
-      case 'player':
-        return (
-          <>
-            <MenuItem icon={<HeartIcon filled={liked} />}
-              label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-              accent={liked} onClick={handleLike} />
-            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
-              onClick={handleAddToPlaylist} />
-            <MenuItem icon={<BookIcon />}
-              label={inLib ? 'Remove from Library' : 'Add to Library'}
-              onClick={handleLibrary} />
-            <Divider />
-            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
-            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
-          </>
-        );
-
-      case 'queue':
-        return (
-          <>
-            <MenuItem icon={<HeartIcon filled={liked} />}
-              label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-              accent={liked} onClick={handleLike} />
-            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
-              onClick={handleAddToPlaylist} />
-            <MenuItem icon={<BookIcon />}
-              label={inLib ? 'Remove from Library' : 'Add to Library'}
-              onClick={handleLibrary} />
-            <Divider />
-            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
-            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
-          </>
-        );
-
-      case 'liked':
-        return (
-          <>
-            <MenuItem icon={<HeartIcon filled={liked} />}
-              label={liked ? 'Remove from Liked Songs' : 'Add to Liked Songs'}
-              accent={liked} onClick={handleLike} />
-            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
-              onClick={handleAddToPlaylist} />
-            <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
-            <Divider />
-            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
-            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
-          </>
-        );
-
-      case 'playlist':
-        return (
-          <>
-            <MenuItem icon={<HeartIcon filled={liked} />}
-              label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-              accent={liked} onClick={handleLike} />
-            <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
-            {playlistId && entryId && onRemoveFromPlaylist && (
-              <MenuItem
-                icon={<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/></svg>}
-                label="Remove from Playlist"
-                onClick={() => { onRemoveFromPlaylist(entryId); onClose(); }}
-              />
-            )}
-            <Divider />
-            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
-            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
-          </>
-        );
-
-      default: // 'default' — album page, search, etc.
-        return (
-          <>
-            <MenuItem icon={<HeartIcon filled={liked} />}
-              label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
-              accent={liked} onClick={handleLike} />
-            <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
-            <MenuItem icon={<PlaylistIcon />} label="Add to Playlist"
-              onClick={handleAddToPlaylist} />
-            <MenuItem icon={<BookIcon />}
-              label={inLib ? 'In My Library' : 'Add to My Library'}
-              accent={inLib} onClick={handleLibrary} />
-            <Divider />
-            <MenuItem icon={<AlbumIcon />} label="Go to Album" onClick={handleGoToAlbum} />
-            <MenuItem icon={<ArtistIcon />} label="View Artists" onClick={handleViewArtists} />
-          </>
-        );
-    }
-  };
+  const isQueueContext    = context === 'queue';
+  const isPlaylistContext = context === 'playlist';
 
   return (
     <>
@@ -288,7 +208,49 @@ export const TrackMenuSheet = ({
 
         {/* Actions */}
         <div className="py-1">
-          {renderActions()}
+
+          {/* Play Next — always shown */}
+          <MenuItem icon={<PlayNextIcon />} label="Play Next" onClick={handlePlayNext} />
+
+          {/* Add to Queue — omitted when already in queue context */}
+          {!isQueueContext && (
+            <MenuItem icon={<QueueIcon />} label="Add to Queue" onClick={handleAddToQueue} />
+          )}
+
+          {/* Like */}
+          <MenuItem
+            icon={<HeartIcon filled={liked} />}
+            label={liked ? 'Added to Liked Songs' : 'Add to Liked Songs'}
+            accent={liked}
+            onClick={handleLike}
+          />
+
+          {/* Add to Playlist */}
+          <MenuItem icon={<PlaylistIcon />} label="Add to Playlist" onClick={handleAddToPlaylist} />
+
+          <Divider />
+
+          {/* Navigation */}
+          <MenuItem icon={<AlbumIcon />} label="Go to Album"    onClick={handleGoToAlbum} />
+          <MenuItem icon={<ArtistIcon />} label="View Artists"  onClick={handleViewArtists} />
+
+          <Divider />
+
+          {/* Remove from Playlist (playlist context only) */}
+          {isPlaylistContext && playlistId && entryId && onRemoveFromPlaylist && (
+            <>
+              <MenuItem
+                icon={<RemoveIcon />}
+                label="Remove from Playlist"
+                onClick={() => { onRemoveFromPlaylist(entryId); onClose(); }}
+              />
+              <Divider />
+            </>
+          )}
+
+          {/* Hide Song — disabled, coming soon */}
+          <MenuItemDisabled icon={<HideIcon />} label="Hide Song" />
+
         </div>
       </BottomSheet>
 
@@ -311,6 +273,7 @@ export const TrackMenuSheet = ({
         onClose={() => setPlaylistPickerOpen(false)}
         trackId={track.id}
         trackTitle={track.title}
+        trackCoverUrl={track.coverUrl}
       />
     </>
   );

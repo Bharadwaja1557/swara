@@ -300,6 +300,38 @@ export const PlaylistRepository = {
   },
 
   /**
+   * Remove the first occurrence of a track by track_id within a playlist.
+   * Used by PlaylistPickerSheet toggle where entry IDs are not available.
+   */
+  async removeTrackByTrackId(playlistId: string, trackId: string): Promise<void> {
+    console.log('[PlaylistRepo] removeTrackByTrackId:', playlistId, trackId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    // Find the first matching entry row ID, then delete it
+    const { data, error: fetchErr } = await supabase
+      .from('playlist_tracks')
+      .select('id')
+      .eq('playlist_id', playlistId)
+      .eq('track_id',    trackId)
+      .limit(1)
+      .single();
+
+    if (fetchErr || !data) {
+      console.error('[PlaylistRepo] removeTrackByTrackId: entry not found', fetchErr?.message);
+      return;
+    }
+
+    const { error } = await supabase
+      .from('playlist_tracks')
+      .delete()
+      .eq('id', data.id);
+
+    if (error) console.error('[PlaylistRepo] removeTrackByTrackId ERROR:', error.message);
+    else       console.log('[PlaylistRepo] removeTrackByTrackId SUCCESS');
+  },
+
+  /**
    * Reorder tracks by writing new positions for a batch of entry IDs.
    * orderedEntryIds: array of entry row IDs in the desired order.
    * Writes sequential positions (1, 2, 3...) to maintain clean ordering.

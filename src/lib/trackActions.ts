@@ -130,6 +130,20 @@ export const trackActions = {
     toast('Added to queue', 'queue');
   },
 
+  /** Insert a single track immediately after the currently playing track. */
+  playNext: (track: Track): void => {
+    usePlayerStore.getState().insertAfterCurrent([track]);
+    toast('Playing next', 'queue');
+  },
+
+  /** Insert multiple tracks immediately after the currently playing track,
+   *  preserving their order relative to each other. */
+  playNextMany: (tracks: Track[]): void => {
+    if (!tracks.length) return;
+    usePlayerStore.getState().insertAfterCurrent(tracks);
+    toast(`Playing next (${tracks.length})`, 'queue');
+  },
+
   removeFromQueue: (index: number): void => {
     usePlayerStore.getState().removeFromQueue(index);
     toast('Removed from queue', 'queue');

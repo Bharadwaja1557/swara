@@ -452,6 +452,10 @@ export interface PlayerState extends PlayerReactState {
   playQueue:         (opts: { tracks: Track[]; context: QueueContext; startIndex?: number }) => void;
   replaceQueue:      (tracks: Track[], context: QueueContext) => void;
   appendToQueue:     (track: Track) => void;
+  /** Insert one or more tracks immediately after the currently playing track.
+   *  Preserves playback position, shuffle state, and repeat state.
+   *  Both activeQueue and originalQueue are updated atomically. */
+  insertAfterCurrent: (tracks: Track[]) => void;
   removeFromQueue:   (index: number) => void;
   moveQueueTrack:    (fromIndex: number, toIndex: number) => void;
   clearQueue:        () => void;
@@ -550,6 +554,31 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     appendToQueue: (track) => {
       _eng.activeQueue   = [..._eng.activeQueue, track];
       _eng.originalQueue = [..._eng.originalQueue, track];
+      set({ queueLength: _eng.activeQueue.length, queueVersion: ++_queueVersion });
+      _savePlayback();
+    },
+
+    // ── insertAfterCurrent ────────────────────────────────────────────────
+    // Inserts one or more tracks immediately after the current playing index.
+    // Preserves I1–I7 invariants:
+    //   - idx is unchanged (still points to the same playing track)
+    //   - tracks are inserted at idx+1 in both activeQueue and originalQueue
+    //   - if queue is empty we just append (graceful fallback)
+    //   - duplicate IDs allowed per I6
+    insertAfterCurrent: (tracks) => {
+      if (!tracks.length) return;
+      const insertAt = _eng.activeQueue.length === 0 ? 0 : _eng.idx + 1;
+      const aq = [..._eng.activeQueue];
+      aq.splice(insertAt, 0, ...tracks);
+      _eng.activeQueue = aq;
+      // For originalQueue: insert after current track's position in orig.
+      // If the current track exists in originalQueue, insert after it;
+      // otherwise append to end (shuffle-on edge case).
+      const ct = _eng.activeQueue[_eng.idx]; // identity is unchanged
+      const origIdx = ct ? _eng.originalQueue.findIndex((t) => t.id === ct.id) : -1;
+      const oq = [..._eng.originalQueue];
+      oq.splice(origIdx >= 0 ? origIdx + 1 : oq.length, 0, ...tracks);
+      _eng.originalQueue = oq;
       set({ queueLength: _eng.activeQueue.length, queueVersion: ++_queueVersion });
       _savePlayback();
     },

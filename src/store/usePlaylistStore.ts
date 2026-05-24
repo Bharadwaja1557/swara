@@ -79,6 +79,8 @@ interface PlaylistState {
   // ── Track mutations ───────────────────────────────────────────────────────
   addTrackToPlaylist:      (playlistId: string, trackId: string) => void;
   removeTrackFromPlaylist: (playlistId: string, entryId: string) => void;
+  /** Remove a track by its trackId (for use when entryId is not available). */
+  removeTrackByTrackId:    (playlistId: string, trackId: string) => void;
   reorderPlaylistTracks:   (playlistId: string, orderedEntryIds: string[]) => void;
 
   // ── Detailed load (for PlaylistPage) ──────────────────────────────────────
@@ -259,6 +261,33 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     import('@/repositories/playlists/PlaylistRepository')
       .then(({ PlaylistRepository }) => PlaylistRepository.removeTrack(entryId))
       .catch((err) => console.error('[Playlists] removeTrackFromPlaylist cloud write failed:', err));
+  },
+
+  // Remove by trackId — used by PlaylistPickerSheet toggle where entryId is
+  // not available. Removes the first occurrence from trackIds optimistically.
+  removeTrackByTrackId: (playlistId, trackId) => {
+    const playlists = get().playlists.map((p) => {
+      if (p.id !== playlistId) return p;
+      const idx = p.trackIds.indexOf(trackId);
+      if (idx === -1) return p; // not in playlist — no-op
+      const trackIds = [...p.trackIds];
+      trackIds.splice(idx, 1);
+      return {
+        ...p,
+        trackIds,
+        trackCount: Math.max(0, p.trackCount - 1),
+        updatedAt:  new Date().toISOString(),
+      };
+    });
+    writeCache(playlists);
+    set({ playlists });
+
+    // Cloud: look up the entryId via repository then remove
+    import('@/repositories/playlists/PlaylistRepository')
+      .then(({ PlaylistRepository }) =>
+        PlaylistRepository.removeTrackByTrackId(playlistId, trackId)
+      )
+      .catch((err) => console.error('[Playlists] removeTrackByTrackId cloud write failed:', err));
   },
 
   reorderPlaylistTracks: (playlistId, orderedEntryIds) => {
