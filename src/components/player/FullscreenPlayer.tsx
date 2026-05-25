@@ -171,8 +171,16 @@ const FullscreenPlayer = () => {
         <div ref={scrollBodyRef} className="flex-1 overflow-y-auto scrollbar-none" style={{ overscrollBehavior: 'contain' }}>
           <div className="px-8 pb-10">
 
-            {/* Cover */}
-            <div className="mt-3 mb-6">
+            {/* Cover — swipe down to minimize (Issue 3).
+                Reuses the same onHandleTouchStart/Move/End handlers as the
+                drag-handle strip at the top. No new gesture state, no new refs.
+                Same thresholds: dy>8 starts drag, dragOffset>80 closes. */}
+            <div
+              className="mt-3 mb-6"
+              onTouchStart={onHandleTouchStart}
+              onTouchMove={onHandleTouchMove}
+              onTouchEnd={onHandleTouchEnd}
+            >
               <div className="aspect-square w-full rounded-[28px] overflow-hidden"
                 style={{
                   boxShadow: isPlaying
@@ -191,8 +199,11 @@ const FullscreenPlayer = () => {
               </div>
             </div>
 
-            {/* Track title + heart */}
-            <div className="flex items-center justify-between gap-3 mb-1">
+            {/* Track title + heart.
+                Issue 1: artist line removed — the Artists section below controls
+                already shows singers/composer. mb-6 absorbs the removed line's
+                vertical rhythm so there is no awkward gap before the seek bar. */}
+            <div className="flex items-center justify-between gap-3 mb-6">
               <h2 className="text-[1.3rem] font-bold text-swara-text tracking-tight leading-snug truncate font-display flex-1">
                 {currentTrack.title}
               </h2>
@@ -210,7 +221,6 @@ const FullscreenPlayer = () => {
                 </svg>
               </button>
             </div>
-            <p className="text-[0.88rem] text-swara-muted mb-5 truncate">{currentTrack.artist}</p>
 
             {/* Seek bar */}
             <div className="mb-5">

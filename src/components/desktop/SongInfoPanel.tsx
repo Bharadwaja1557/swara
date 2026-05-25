@@ -58,6 +58,15 @@ const SongInfoPanel = () => {
       style={{ width: '25%', minWidth: '200px', maxWidth: '320px', borderColor: 'rgba(255,255,255,0.06)' }}
     >
       <div className="flex-1 overflow-y-auto scrollbar-none px-4 pt-5 pb-4">
+        {/* Queue source label — above the cover so hierarchy reads:
+            "where it's playing from" → cover → title → actions */}
+        {queueContext && (
+          <p className="text-[0.63rem] text-swara-dim tracking-wide text-center mb-2.5 uppercase font-medium">
+            {CONTEXT_LABELS[queueContext.type] ?? 'Playing'}
+            {queueContext.title ? ` · ${queueContext.title}` : ''}
+          </p>
+        )}
+
         {/* Cover */}
         <div className="w-full aspect-square rounded-2xl overflow-hidden bg-swara-card mb-3"
           style={{ boxShadow: isPlaying ? '0 4px 32px rgba(0,0,0,0.7), 0 0 40px rgba(200,169,110,0.07)' : '0 4px 24px rgba(0,0,0,0.6)', transition: 'box-shadow 0.6s ease' }}>
@@ -69,14 +78,6 @@ const SongInfoPanel = () => {
             onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
           />
         </div>
-
-        {/* Queue source label */}
-        {queueContext && (
-          <p className="text-[0.63rem] text-swara-dim tracking-wide text-center mb-3 uppercase font-medium">
-            {CONTEXT_LABELS[queueContext.type] ?? 'Playing'}
-            {queueContext.title ? ` · ${queueContext.title}` : ''}
-          </p>
-        )}
 
         {/* Track info */}
         <div className="mb-4">
