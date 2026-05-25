@@ -1,65 +1,49 @@
 /**
- * LibraryPage — the user's PERSONAL library.
- *
- * TAB ORDER: All | Playlists | Albums | Artists
+ * LibraryPage — the user's personal library.
  *
  * ARCHITECTURE:
  *   All data is normalized into LibraryRenderable[] via buildRenderables()
- *   before any JSX is evaluated. The render loop is branch-free:
+ *   before any JSX is evaluated. The render loop is branch-free.
  *
- *     renderables.map(item => <LibraryCard key={item.key} ...item />)
- *     renderables.map(item => <LibraryRow  key={item.key} ...item />)
+ * FILTER CHIPS (Issue 5):
+ *   Playlists + Albums: independently toggleable
+ *   Artists: exclusive — selecting it deactivates Playlists/Albums
+ *   Selecting Playlists or Albums deactivates Artists
  *
- *   Each tab passes a different `include` set to buildRenderables() —
- *   the All tab passes all three, Albums passes {'album'} only, etc.
- *   Adding a new entity type (podcasts, audiobooks) = one line in the
- *   include set + one normalizer in libraryRenderables.ts.
+ * UI PREFS (Issue 1):
+ *   Sort + view + tab persisted to localStorage via useLibraryPrefsStore.
+ *   Zero flicker on hydration — state is read synchronously from localStorage
+ *   before first render (no useEffect hydration dance).
  *
- *   Sort + view prefs are persisted to localStorage and shared with
- *   LibraryPanel via separate storage keys.
+ * ARTISTS (Issue 6):
+ *   Artists section shows ONLY explicitly-followed artists (useFavoriteArtistsStore).
+ *   Passing favoriteArtistIds to buildRenderables() activates the explicit-follow path.
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useLibraryStore }     from '@/store/libraryStore';
-import { useLikedStore }       from '@/store/likedStore';
-import { useUserLibraryStore } from '@/store/useUserLibraryStore';
-import { usePlaylistStore }    from '@/store/usePlaylistStore';
-import LibraryCard             from '@/components/ui/LibraryCard';
-import LibraryRow              from '@/components/ui/LibraryRow';
+import { useLibraryStore }          from '@/store/libraryStore';
+import { useLikedStore }            from '@/store/likedStore';
+import { useUserLibraryStore }      from '@/store/useUserLibraryStore';
+import { usePlaylistStore }         from '@/store/usePlaylistStore';
+import { useLibraryPrefsStore }     from '@/store/useLibraryPrefsStore';
+import { useFavoriteArtistsStore }  from '@/store/useFavoriteArtistsStore';
+import LibraryCard                  from '@/components/ui/LibraryCard';
+import LibraryRow                   from '@/components/ui/LibraryRow';
+import CreateLibraryItemSheet       from '@/components/ui/CreateLibraryItemSheet';
 import {
   buildRenderables,
   type LibraryRenderable,
-  type LibrarySortMode,
 } from '@/lib/libraryRenderables';
+import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab      = 'All' | 'Playlists' | 'Albums' | 'Artists';
 type ViewMode = 'list' | 'grid';
 
-const TABS:  Tab[]             = ['All', 'Playlists', 'Albums', 'Artists'];
 const SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
-const PREF_KEY = 'swara_library_prefs';
-
-// ── Prefs persistence ─────────────────────────────────────────────────────────
-
-function loadPrefs(): { sort: LibrarySortMode; view: ViewMode } {
-  try {
-    const raw = localStorage.getItem(PREF_KEY);
-    if (!raw) return { sort: 'Recently Added', view: 'list' };
-    const p = JSON.parse(raw) as { sort?: LibrarySortMode; view?: ViewMode };
-    return {
-      sort: (SORTS as string[]).includes(p.sort ?? '') ? (p.sort as LibrarySortMode) : 'Recently Added',
-      view: p.view === 'grid' ? 'grid' : 'list',
-    };
-  } catch { return { sort: 'Recently Added', view: 'list' }; }
-}
-function savePrefs(sort: LibrarySortMode, view: ViewMode) {
-  try { localStorage.setItem(PREF_KEY, JSON.stringify({ sort, view })); } catch {}
-}
+const GRID_CLASS = 'grid grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4';
 
 // ── Liked Songs pinned row ────────────────────────────────────────────────────
-// Rendered on All / Albums / Artists tabs (not Playlists).
 
 const LikedSongsRow = ({
   count, onClick,
@@ -88,10 +72,7 @@ const LikedSongsRow = ({
   </div>
 );
 
-// ── RenderableList / RenderableGrid ──────────────────────────────────────────
-// Branch-free renderers — both accept LibraryRenderable[] directly.
-
-const GRID_CLASS = 'grid grid-cols-3 lg:grid-cols-4 gap-3 lg:gap-4';
+// ── Renderers ─────────────────────────────────────────────────────────────────
 
 const RenderableGrid = ({
   items, onNavigate,
@@ -134,99 +115,166 @@ const RenderableList = ({
 // ── LibraryPage ───────────────────────────────────────────────────────────────
 
 const LibraryPage = () => {
-  const [tab,      setTab]      = useState<Tab>('All');
-  const [sort,     setSort]     = useState<LibrarySortMode>(() => loadPrefs().sort);
-  const [view,     setView]     = useState<ViewMode>(() => loadPrefs().view);
-  const [sortOpen, setSortOpen] = useState(false);
+  // Persisted prefs — synchronously initialized from localStorage, zero flicker
+  const { sort, view, setSort, setView } = useLibraryPrefsStore();
+
+  const [sortOpen,      setSortOpen]      = useState(false);
+  const [createOpen,    setCreateOpen]    = useState(false);
+
+  // Issue 5: filter chip state (independent toggles for playlists/albums, exclusive for artists)
+  const [showPlaylists, setShowPlaylists] = useState(true);
+  const [showAlbums,    setShowAlbums]    = useState(true);
+  const [showArtists,   setShowArtists]   = useState(false);
 
   const navigate = useNavigate();
 
   // ── Store subscriptions ───────────────────────────────────────────────────
 
   const { albumMap, artistMap, trackMap } = useLibraryStore();
-  const entries   = useUserLibraryStore((s) => s.entries);
-  const playlists = usePlaylistStore((s) => s.playlists);
+  const entries    = useUserLibraryStore((s) => s.entries);
+  const playlists  = usePlaylistStore((s) => s.playlists);
   const likedCount = useLikedStore((s) => s.getLikedTracks().length);
+  // Issue 6: explicit-follow-only artists
+  const favorites  = useFavoriteArtistsStore((s) => s.favorites);
+  const favoriteArtistIds = useMemo(
+    () => favorites.map((f) => f.artistId),
+    [favorites],
+  );
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
+  // ── Filter chip handlers (Issue 5) ───────────────────────────────────────
+
+  const handleTogglePlaylists = () => {
+    setShowPlaylists((v) => !v);
+    setShowArtists(false); // artists is exclusive
+  };
+
+  const handleToggleAlbums = () => {
+    setShowAlbums((v) => !v);
+    setShowArtists(false); // artists is exclusive
+  };
+
+  const handleToggleArtists = () => {
+    if (!showArtists) {
+      // Activate artists exclusively
+      setShowArtists(true);
+      setShowPlaylists(false);
+      setShowAlbums(false);
+    } else {
+      // Deactivate — return to all
+      setShowArtists(false);
+      setShowPlaylists(true);
+      setShowAlbums(true);
+    }
+  };
+
+  // ── Prefs handlers ────────────────────────────────────────────────────────
 
   const handleSetSort = useCallback((s: LibrarySortMode) => {
-    setSort(s); setSortOpen(false); savePrefs(s, view);
-  }, [view]);
+    setSort(s);
+    setSortOpen(false);
+  }, [setSort]);
 
   const handleSetView = useCallback((v: ViewMode) => {
-    setView(v); savePrefs(sort, v);
-  }, [sort]);
+    setView(v);
+  }, [setView]);
 
   const handleNavigate = useCallback((route: string) => {
     navigate(route);
   }, [navigate]);
 
-  // ── Normalized renderables — ONE pipeline per tab ─────────────────────────
-  // buildRenderables handles: resolution, deduplication, sort.
-  // Each tab just varies the `include` set.
+  // ── Derive the include set from filter chip state ─────────────────────────
 
-  const allRenderables = useMemo(
-    () => buildRenderables(entries, albumMap, artistMap, playlists, trackMap, sort),
-    [entries, albumMap, artistMap, playlists, trackMap, sort],
+  const include = useMemo(() => {
+    const s = new Set<'album' | 'artist' | 'playlist'>();
+    if (showPlaylists) s.add('playlist');
+    if (showAlbums)    s.add('album');
+    if (showArtists)   s.add('artist');
+    // When all are off, show everything (prevents empty screen confusion)
+    if (s.size === 0) { s.add('album'); s.add('playlist'); }
+    return s;
+  }, [showPlaylists, showAlbums, showArtists]);
+
+  // ── Normalized renderables ────────────────────────────────────────────────
+
+  const renderables = useMemo(
+    () => buildRenderables(
+      entries, albumMap, artistMap, playlists, trackMap, sort, include,
+      showArtists ? favoriteArtistIds : undefined,
+    ),
+    [entries, albumMap, artistMap, playlists, trackMap, sort, include, favoriteArtistIds, showArtists],
   );
-
-  const playlistRenderables = useMemo(
-    () => buildRenderables(entries, albumMap, artistMap, playlists, trackMap, sort, new Set(['playlist'])),
-    [entries, albumMap, artistMap, playlists, trackMap, sort],
-  );
-
-  const albumRenderables = useMemo(
-    () => buildRenderables(entries, albumMap, artistMap, playlists, trackMap, sort, new Set(['album'])),
-    [entries, albumMap, artistMap, playlists, trackMap, sort],
-  );
-
-  const artistRenderables = useMemo(
-    () => buildRenderables(entries, albumMap, artistMap, playlists, trackMap, sort, new Set(['artist'])),
-    [entries, albumMap, artistMap, playlists, trackMap, sort],
-  );
-
-  // Derive the renderable list for the current tab
-  const currentRenderables: LibraryRenderable[] = {
-    All:      allRenderables,
-    Playlists:playlistRenderables,
-    Albums:   albumRenderables,
-    Artists:  artistRenderables,
-  }[tab];
 
   // ── Empty-state flags ─────────────────────────────────────────────────────
 
-  const hasAnyContent      = entries.length > 0 || playlists.length > 0;
-  const currentTabIsEmpty  = currentRenderables.length === 0;
+  const hasAnyContent     = entries.length > 0 || playlists.length > 0;
+  const currentTabIsEmpty = renderables.length === 0;
 
   // ── Render ────────────────────────────────────────────────────────────────
 
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
 
-      {/* ── Header + tabs ── */}
+      {/* ── Header ── */}
       <div className="px-5 lg:px-8 pt-6 pb-2">
-        <h1 className="text-[1.5rem] font-bold text-swara-text tracking-tight font-display mb-4">
-          My Library
-        </h1>
+        <div className="flex items-center justify-between mb-4">
+          <h1 className="text-[1.5rem] font-bold text-swara-text tracking-tight font-display">
+            My Library
+          </h1>
+          {/* Issue 3: "+" button opens Create Playlist / Folder picker */}
+          <button
+            type="button"
+            onClick={() => setCreateOpen(true)}
+            className="w-8 h-8 flex items-center justify-center rounded-full text-swara-muted hover:text-swara-text hover:bg-swara-card transition-all"
+            aria-label="Create playlist or folder"
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
+              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"/>
+              <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Issue 5: Filter chips — playlists+albums toggleable, artists exclusive */}
         <div className="flex gap-2 overflow-x-auto scrollbar-none pb-1">
-          {TABS.map((t) => (
-            <button key={t} type="button" onClick={() => setTab(t)}
-              className={[
-                'flex-shrink-0 px-4 py-1.5 rounded-full text-[0.82rem] font-medium border transition-all duration-200',
-                tab === t
-                  ? 'bg-swara-accent border-swara-accent text-swara-bg'
-                  : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
-              ].join(' ')}>
-              {t}
-            </button>
-          ))}
+          {/* Playlists chip */}
+          <button type="button" onClick={handleTogglePlaylists}
+            className={[
+              'flex-shrink-0 px-4 py-1.5 rounded-full text-[0.82rem] font-medium border transition-all duration-200',
+              showPlaylists && !showArtists
+                ? 'bg-swara-accent border-swara-accent text-swara-bg'
+                : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
+            ].join(' ')}>
+            Playlists
+          </button>
+
+          {/* Albums chip */}
+          <button type="button" onClick={handleToggleAlbums}
+            className={[
+              'flex-shrink-0 px-4 py-1.5 rounded-full text-[0.82rem] font-medium border transition-all duration-200',
+              showAlbums && !showArtists
+                ? 'bg-swara-accent border-swara-accent text-swara-bg'
+                : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
+            ].join(' ')}>
+            Albums
+          </button>
+
+          {/* Artists chip — exclusive */}
+          <button type="button" onClick={handleToggleArtists}
+            className={[
+              'flex-shrink-0 px-4 py-1.5 rounded-full text-[0.82rem] font-medium border transition-all duration-200',
+              showArtists
+                ? 'bg-swara-accent border-swara-accent text-swara-bg'
+                : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
+            ].join(' ')}>
+            Artists
+          </button>
         </div>
       </div>
 
       <div className="mx-5 lg:mx-8 h-px bg-swara-border opacity-50 mb-3" />
 
-      {/* ── Sort + view controls — hidden when current tab is empty ── */}
+      {/* ── Sort + view controls ── */}
       {hasAnyContent && !currentTabIsEmpty && (
         <div className="flex items-center justify-between px-5 lg:px-8 mb-4">
           {/* Sort dropdown */}
@@ -264,7 +312,7 @@ const LibraryPage = () => {
             )}
           </div>
 
-          {/* View mode toggle */}
+          {/* View toggle */}
           <div className="flex items-center gap-1 bg-swara-card border border-swara-border rounded-lg p-0.5">
             {(['list', 'grid'] as ViewMode[]).map((v) => (
               <button key={v} type="button" onClick={() => handleSetView(v)}
@@ -295,7 +343,6 @@ const LibraryPage = () => {
       {/* ── Content ── */}
       <div className="px-5 lg:px-8 pb-6">
 
-        {/* Global empty — no albums AND no playlists */}
         {!hasAnyContent && (
           <div className="flex flex-col items-center justify-center py-14 gap-3 text-center">
             <div className="w-14 h-14 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim">
@@ -318,48 +365,49 @@ const LibraryPage = () => {
 
         {hasAnyContent && (
           <>
-            {/* Liked Songs pinned — visible on all tabs except Playlists */}
-            {tab !== 'Playlists' && (
+            {/* Liked Songs — hidden when Artists filter is active */}
+            {!showArtists && (
               <LikedSongsRow count={likedCount} onClick={() => navigate('/liked')} />
             )}
 
-            {/* Per-tab empty state */}
+            {/* Empty state for current filter */}
             {currentTabIsEmpty && (
               <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-                {tab === 'Playlists' ? (
+                {showArtists ? (
                   <>
                     <div className="w-14 h-14 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim">
                       <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor"
-                        strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
-                        <path d="M9 18V5l12-2v13"/>
-                        <circle cx="6" cy="18" r="3"/>
-                        <circle cx="18" cy="16" r="3"/>
+                        strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="8" r="4"/>
+                        <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
                       </svg>
                     </div>
-                    <p className="text-[0.9rem] font-semibold text-swara-muted">No playlists yet</p>
-                    <p className="text-[0.78rem] text-swara-dim max-w-[220px] leading-relaxed">
-                      Tap "Add to Playlist" on any track to create your first playlist.
+                    <p className="text-[0.9rem] font-semibold text-swara-muted">No followed artists</p>
+                    <p className="text-[0.78rem] text-swara-dim max-w-[230px] leading-relaxed">
+                      Visit an artist page and tap "Follow" to add them here.
                     </p>
                   </>
                 ) : (
-                  <p className="text-[0.82rem] text-swara-dim">
-                    {tab === 'Albums'  ? 'Add albums to see them here.'  : ''}
-                    {tab === 'Artists' ? 'Add albums to see artists here.' : ''}
-                    {tab === 'All'     ? 'Add albums or create playlists to see them here.' : ''}
-                  </p>
+                  <p className="text-[0.82rem] text-swara-dim">Nothing here yet. Try a different filter.</p>
                 )}
               </div>
             )}
 
-            {/* Content list/grid — same branch-free renderer for all tabs */}
+            {/* Content */}
             {!currentTabIsEmpty && (
               view === 'grid'
-                ? <RenderableGrid items={currentRenderables} onNavigate={handleNavigate} />
-                : <RenderableList items={currentRenderables} onNavigate={handleNavigate} />
+                ? <RenderableGrid items={renderables} onNavigate={handleNavigate} />
+                : <RenderableList items={renderables} onNavigate={handleNavigate} />
             )}
           </>
         )}
       </div>
+
+      {/* Create Playlist / Folder sheet */}
+      <CreateLibraryItemSheet
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
     </div>
   );
 };

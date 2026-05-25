@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useLibraryStore } from '@/store/libraryStore';
 import { trackActions } from '@/lib/trackActions';
+import { useFavoriteArtistsStore } from '@/store/useFavoriteArtistsStore';
+import { useToastStore } from '@/store/useToastStore';
 import SongRow from '@/components/ui/SongRow';
 import type { Track, Album } from '@/types/music';
 
@@ -15,6 +17,11 @@ const ArtistPage = () => {
   const { artists, tracks, albums, loaded, loadAlbumTracks } = useLibraryStore();
   const [showAllSongs,   setShowAllSongs]   = useState(false);
   const [showAllAlbums,  setShowAllAlbums]  = useState(false);
+
+  // Issue 6: explicit artist follow — all hooks before any guard
+  const isFollowing = useFavoriteArtistsStore((s) => s.isFollowing);
+  const toggle      = useFavoriteArtistsStore((s) => s.toggle);
+  const showToast   = useToastStore((s) => s.show);
 
   const artist = artists.find((a) => a.id === id);
 
@@ -85,10 +92,46 @@ const ArtistPage = () => {
             <h1 className="text-[1.4rem] lg:text-[2.6rem] font-bold text-swara-text tracking-tight font-display lg:leading-none mb-1 lg:mb-2">
               {artist.name}
             </h1>
-            <p className="text-[0.8rem] lg:text-[0.92rem] text-swara-muted">
+            <p className="text-[0.8rem] lg:text-[0.92rem] text-swara-muted mb-3">
               {artistTracks.length > 0 ? `${artistTracks.length} song${artistTracks.length !== 1 ? 's' : ''}` : ''}
               {composerAlbums.length > 0 ? `${artistTracks.length > 0 ? ' · ' : ''}${composerAlbums.length} album${composerAlbums.length !== 1 ? 's' : ''}` : ''}
             </p>
+
+            {/* Issue 6: Follow / Unfollow button — explicit intent only */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!id) return;
+                const nowFollowing = toggle(id);
+                showToast(
+                  nowFollowing ? `Following ${artist.name}` : `Unfollowed ${artist.name}`,
+                  nowFollowing ? 'heart' : 'check',
+                );
+              }}
+              className={[
+                'inline-flex items-center gap-1.5 h-8 px-4 rounded-full border text-[0.78rem] font-semibold transition-all',
+                isFollowing(id ?? '')
+                  ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                  : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
+              ].join(' ')}
+              aria-pressed={isFollowing(id ?? '')}
+            >
+              {isFollowing(id ?? '') ? (
+                <>
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
+                    <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+                  </svg>
+                  Following
+                </>
+              ) : (
+                <>
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                  </svg>
+                  Follow
+                </>
+              )}
+            </button>
           </div>
         </div>
 

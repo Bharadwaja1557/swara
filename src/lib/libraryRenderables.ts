@@ -136,42 +136,55 @@ function sortRenderables(
 /**
  * Build a sorted LibraryRenderable[] from library store data.
  *
- * @param entries     UserLibraryStore entries (album IDs + addedAt timestamps)
- * @param albumMap    Catalog album map (id → Album)
- * @param artistMap   Catalog artist map (id → Artist)
- * @param playlists   All user playlists from usePlaylistStore
- * @param trackMap    Catalog track map — kept in signature for API compatibility
- *                    but playlist cover resolution now happens in PlaylistArtwork
- *                    at render time (so the collage is always fresh).
- * @param mode        Sort mode
- * @param include     Which entity types to include. Defaults to all three.
+ * @param entries            UserLibraryStore entries (album IDs + addedAt timestamps)
+ * @param albumMap           Catalog album map (id → Album)
+ * @param artistMap          Catalog artist map (id → Artist)
+ * @param playlists          All user playlists from usePlaylistStore
+ * @param trackMap           Catalog track map — kept for API compat, used by PlaylistArtwork at render time
+ * @param mode               Sort mode
+ * @param include            Which entity types to include. Defaults to all three.
+ * @param favoriteArtistIds  Explicitly-followed artist IDs (from useFavoriteArtistsStore).
+ *                           When provided, Artists section shows ONLY these artists.
+ *                           When undefined, falls back to album-derived artists (legacy behavior).
  */
 export function buildRenderables(
-  entries:   UserLibraryEntry[],
-  albumMap:  Map<string, Album>,
-  artistMap: Map<string, Artist>,
-  playlists: Playlist[],
-  trackMap:  Map<string, Track>,
-  mode:      LibrarySortMode,
-  include:   Set<LibraryEntityType> = new Set(['album', 'artist', 'playlist']),
+  entries:            UserLibraryEntry[],
+  albumMap:           Map<string, Album>,
+  artistMap:          Map<string, Artist>,
+  playlists:          Playlist[],
+  trackMap:           Map<string, Track>,
+  mode:               LibrarySortMode,
+  include:            Set<LibraryEntityType> = new Set(['album', 'artist', 'playlist']),
+  favoriteArtistIds?: string[],
 ): LibraryRenderable[] {
-  // trackMap is accepted for API compatibility; playlist covers are resolved
-  // at render time by PlaylistArtwork using the live store subscription.
-  void trackMap;
+  void trackMap; // playlist covers resolved at render time by PlaylistArtwork
 
   const items: LibraryRenderable[] = [];
-  const seenArtistIds = new Set<string>();
 
-  if (include.has('album') || include.has('artist')) {
+  if (include.has('album')) {
     for (const entry of entries) {
       const album = albumMap.get(entry.albumId);
       if (!album) continue;
+      items.push(fromAlbum(album, entry.addedAt));
+    }
+  }
 
-      if (include.has('album')) {
-        items.push(fromAlbum(album, entry.addedAt));
+  if (include.has('artist')) {
+    if (favoriteArtistIds && favoriteArtistIds.length > 0) {
+      // Issue 6: explicit-follow-only — only show favorited artists
+      for (const artistId of favoriteArtistIds) {
+        const artist = artistMap.get(artistId);
+        if (artist) {
+          // sortDate: use the follow timestamp if we had it — fallback to now
+          items.push(fromArtist(artist, Date.now()));
+        }
       }
-
-      if (include.has('artist')) {
+    } else if (!favoriteArtistIds) {
+      // Legacy fallback: derive from album entries (used when favoriteArtistIds not passed)
+      const seenArtistIds = new Set<string>();
+      for (const entry of entries) {
+        const album = albumMap.get(entry.albumId);
+        if (!album) continue;
         const artistId = slugify(album.composer);
         if (artistId && !seenArtistIds.has(artistId)) {
           seenArtistIds.add(artistId);
@@ -180,6 +193,7 @@ export function buildRenderables(
         }
       }
     }
+    // If favoriteArtistIds is [] (empty array), no artists are shown — correct behavior
   }
 
   if (include.has('playlist')) {

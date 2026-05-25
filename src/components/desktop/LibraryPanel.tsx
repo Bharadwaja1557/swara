@@ -11,39 +11,24 @@
  */
 import { useState, useMemo, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useLibraryStore }      from '@/store/libraryStore';
-import { useUserLibraryStore }  from '@/store/useUserLibraryStore';
-import { useLikedStore }        from '@/store/likedStore';
-import { usePlaylistStore }     from '@/store/usePlaylistStore';
-import LibraryCard              from '@/components/ui/LibraryCard';
-import LibraryRow               from '@/components/ui/LibraryRow';
+import { useLibraryStore }          from '@/store/libraryStore';
+import { useUserLibraryStore }      from '@/store/useUserLibraryStore';
+import { useLikedStore }            from '@/store/likedStore';
+import { usePlaylistStore }         from '@/store/usePlaylistStore';
+import { useLibraryPrefsStore }     from '@/store/useLibraryPrefsStore';
+import LibraryCard                  from '@/components/ui/LibraryCard';
+import LibraryRow                   from '@/components/ui/LibraryRow';
+import CreateLibraryItemSheet       from '@/components/ui/CreateLibraryItemSheet';
 import {
   buildRenderables,
   type LibraryRenderable,
-  type LibrarySortMode,
 } from '@/lib/libraryRenderables';
+import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
 
 type Tab      = 'All' | 'Playlists' | 'Albums' | 'Artists';
 type ViewMode = 'list' | 'grid';
 
-const PANEL_PREF_KEY = 'swara_panel_prefs';
 const SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
-
-function loadPanelPrefs(): { sort: LibrarySortMode; view: ViewMode } {
-  try {
-    const raw = localStorage.getItem(PANEL_PREF_KEY);
-    if (!raw) return { sort: 'Recently Added', view: 'list' };
-    const p = JSON.parse(raw) as { sort?: LibrarySortMode; view?: ViewMode };
-    return {
-      sort: (SORTS as string[]).includes(p.sort ?? '')
-        ? (p.sort as LibrarySortMode) : 'Recently Added',
-      view: p.view === 'grid' ? 'grid' : 'list',
-    };
-  } catch { return { sort: 'Recently Added', view: 'list' }; }
-}
-function savePanelPrefs(sort: LibrarySortMode, view: ViewMode) {
-  try { localStorage.setItem(PANEL_PREF_KEY, JSON.stringify({ sort, view })); } catch {}
-}
 
 // ── Branch-free grid / list renderers (compact variant) ──────────────────────
 
@@ -93,14 +78,15 @@ const CompactList = ({
 // ── LibraryPanel ──────────────────────────────────────────────────────────────
 
 const LibraryPanel = () => {
-  const [tab,      setTab]      = useState<Tab>('All');
-  const [sort,     setSort]     = useState<LibrarySortMode>(() => loadPanelPrefs().sort);
-  const [view,     setView]     = useState<ViewMode>(() => loadPanelPrefs().view);
-  const [sortOpen, setSortOpen] = useState(false);
+  const [tab,        setTab]        = useState<Tab>('All');
+  const [sortOpen,   setSortOpen]   = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
+
+  // Shared prefs store — keeps LibraryPanel in sync with LibraryPage
+  const { sort, view, setSort, setView } = useLibraryPrefsStore();
 
   const navigate = useNavigate();
   const location = useLocation();
-  // HashRouter stores the route in location.hash — use it for active-link detection.
   const activeRoute = location.hash;
 
   // ── Store subscriptions ───────────────────────────────────────────────────
@@ -113,12 +99,12 @@ const LibraryPanel = () => {
   // ── Handlers ──────────────────────────────────────────────────────────────
 
   const handleSetSort = useCallback((s: LibrarySortMode) => {
-    setSort(s); setSortOpen(false); savePanelPrefs(s, view);
-  }, [view]);
+    setSort(s); setSortOpen(false);
+  }, [setSort]);
 
   const handleSetView = useCallback((v: ViewMode) => {
-    setView(v); savePanelPrefs(sort, v);
-  }, [sort]);
+    setView(v);
+  }, [setView]);
 
   const handleNavigate = useCallback((route: string) => {
     navigate(route);
@@ -167,10 +153,19 @@ const LibraryPanel = () => {
       <div className="flex-shrink-0 px-4 pt-5 pb-3">
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-[0.78rem] font-semibold text-swara-muted tracking-widest uppercase">
-            Library
+            My Library
           </h2>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            {/* Issue 3: "+" button */}
+            <button type="button" onClick={() => setCreateOpen(true)}
+              className="w-6 h-6 flex items-center justify-center rounded text-swara-dim hover:text-swara-muted transition-colors"
+              aria-label="Create playlist or folder">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+
             {/* View toggle */}
             {!isGloballyEmpty && (
               <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-md p-0.5">
@@ -342,6 +337,11 @@ const LibraryPanel = () => {
           </button>
         </div>
       </div>
+
+      <CreateLibraryItemSheet
+        isOpen={createOpen}
+        onClose={() => setCreateOpen(false)}
+      />
     </aside>
   );
 };
