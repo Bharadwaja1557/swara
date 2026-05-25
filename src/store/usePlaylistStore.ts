@@ -38,7 +38,13 @@ export interface Playlist {
   isPublic:    boolean;
   trackCount:  number;
   createdAt:   string;
+  /** Bumped on: rename, cover change, reorder, description edit. */
   updatedAt:   string;
+  /** Bumped when playlist playback starts. Local-only (not synced to DB yet). */
+  lastPlayedAt?: string;
+  /** Bumped on: tracks added/removed, reorder, edit, played.
+   *  Local-only — the union of all meaningful interactions. */
+  lastInteractedAt?: string;
   /** Ordered track IDs — populated after getPlaylist() or syncFromCloud(). */
   trackIds:    string[];
 }
@@ -47,8 +53,32 @@ export interface Playlist {
 
 const CACHE_KEY = 'swara_playlists_v1';
 
+/** Backfill any missing timestamp fields on cached playlists from older versions.
+ *  Guarantees all Playlist objects have the full shape — no field is ever undefined
+ *  when the code expects a string. */
+function backfillTimestamps(p: Partial<Playlist> & { id: string; createdAt: string; updatedAt: string }): Playlist {
+  return {
+    id:               p.id,
+    title:            p.title ?? '',
+    description:      p.description,
+    coverImageUrl:    p.coverImageUrl,
+    coverId:          p.coverId,
+    isPublic:         p.isPublic ?? false,
+    trackCount:       p.trackCount ?? 0,
+    createdAt:        p.createdAt,
+    updatedAt:        p.updatedAt,
+    // New fields: backfill to updatedAt so existing playlists sort correctly
+    lastPlayedAt:     p.lastPlayedAt,
+    lastInteractedAt: p.lastInteractedAt ?? p.updatedAt,
+    trackIds:         p.trackIds ?? [],
+  };
+}
+
 function readCache(): Playlist[] {
-  try { return JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]'); } catch { return []; }
+  try {
+    const raw = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '[]') as Playlist[];
+    return raw.map((p) => backfillTimestamps(p as Parameters<typeof backfillTimestamps>[0]));
+  } catch { return []; }
 }
 function writeCache(playlists: Playlist[]) {
   try { localStorage.setItem(CACHE_KEY, JSON.stringify(playlists)); } catch {}
@@ -86,6 +116,11 @@ interface PlaylistState {
   // ── Detailed load (for PlaylistPage) ──────────────────────────────────────
   /** Fetch a single playlist's full track list from cloud and merge into state. */
   loadPlaylistTracks: (playlistId: string) => Promise<PlaylistTrackEntry[]>;
+
+  // ── Playback event hook ───────────────────────────────────────────────────
+  /** Called once when a playlist playback session starts (not on each track advance).
+   *  Updates lastPlayedAt and lastInteractedAt. Local-only optimistic write. */
+  recordPlay: (id: string) => void;
 
   // ── Cloud sync ────────────────────────────────────────────────────────────
   syncFromCloud: () => Promise<void>;
@@ -161,8 +196,9 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   renamePlaylist: (id, title) => {
+    const now = new Date().toISOString();
     const playlists = get().playlists.map((p) =>
-      p.id !== id ? p : { ...p, title, updatedAt: new Date().toISOString() }
+      p.id !== id ? p : { ...p, title, updatedAt: now, lastInteractedAt: now }
     );
     writeCache(playlists);
     set({ playlists });
@@ -226,14 +262,15 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   // ── Track mutations ───────────────────────────────────────────────────────
 
   addTrackToPlaylist: (playlistId, trackId) => {
-    // Optimistic: append trackId to the playlist's local trackIds list
+    const now = new Date().toISOString();
     const playlists = get().playlists.map((p) => {
       if (p.id !== playlistId) return p;
       return {
         ...p,
-        trackIds:   [...p.trackIds, trackId],
-        trackCount: p.trackCount + 1,
-        updatedAt:  new Date().toISOString(),
+        trackIds:          [...p.trackIds, trackId],
+        trackCount:        p.trackCount + 1,
+        updatedAt:         now,
+        lastInteractedAt:  now,
       };
     });
     writeCache(playlists);
@@ -245,14 +282,14 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   removeTrackFromPlaylist: (playlistId, entryId) => {
-    // Optimistic: we don't easily know which trackId maps to entryId locally,
-    // so we just decrement count and the full trackIds list refreshes next load
+    const now = new Date().toISOString();
     const playlists = get().playlists.map((p) => {
       if (p.id !== playlistId) return p;
       return {
         ...p,
-        trackCount: Math.max(0, p.trackCount - 1),
-        updatedAt:  new Date().toISOString(),
+        trackCount:       Math.max(0, p.trackCount - 1),
+        updatedAt:        now,
+        lastInteractedAt: now,
       };
     });
     writeCache(playlists);
@@ -266,17 +303,19 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   // Remove by trackId — used by PlaylistPickerSheet toggle where entryId is
   // not available. Removes the first occurrence from trackIds optimistically.
   removeTrackByTrackId: (playlistId, trackId) => {
+    const now = new Date().toISOString();
     const playlists = get().playlists.map((p) => {
       if (p.id !== playlistId) return p;
       const idx = p.trackIds.indexOf(trackId);
-      if (idx === -1) return p; // not in playlist — no-op
+      if (idx === -1) return p;
       const trackIds = [...p.trackIds];
       trackIds.splice(idx, 1);
       return {
         ...p,
         trackIds,
-        trackCount: Math.max(0, p.trackCount - 1),
-        updatedAt:  new Date().toISOString(),
+        trackCount:       Math.max(0, p.trackCount - 1),
+        updatedAt:        now,
+        lastInteractedAt: now,
       };
     });
     writeCache(playlists);
@@ -314,6 +353,21 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     set({ playlists });
 
     return result.entries;
+  },
+
+  // ── Playback event hook ────────────────────────────────────────────────────
+  // Called ONCE when playlist playback session starts — not on each track advance.
+  // The playerStore tracks queueContext.id so repeated advances to the same
+  // playlist don't call this repeatedly.
+  recordPlay: (id) => {
+    const now = new Date().toISOString();
+    const playlists = get().playlists.map((p) =>
+      p.id !== id ? p : { ...p, lastPlayedAt: now, lastInteractedAt: now }
+    );
+    writeCache(playlists);
+    set({ playlists });
+    // lastPlayedAt is local-only for now — no cloud write needed
+    // (add a DB column + cloud write here when ready for analytics)
   },
 
   // ── Cloud sync ────────────────────────────────────────────────────────────

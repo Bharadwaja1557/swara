@@ -18,6 +18,7 @@ import { useLibraryStore }     from '@/store/libraryStore';
 import { useUserLibraryStore } from '@/store/useUserLibraryStore';
 import type { ToastIcon }      from '@/store/useToastStore';
 import type { Playlist }       from '@/store/usePlaylistStore';
+import { usePlaylistStore }    from '@/store/usePlaylistStore';
 import { resolvePlaylistArtwork }    from '@/features/artwork';
 import {
   buildAlbumQueue,
@@ -103,6 +104,11 @@ export const trackActions = {
     const artworkUrl = artwork.url ?? artwork.collageUrls?.[0];
     const built = buildPlaylistQueue(playlist.id, playlist.title, tracks, artworkUrl, startTrack);
     usePlayerStore.getState().playQueue(built);
+
+    // Issue 3: record play event — updates lastPlayedAt + lastInteractedAt.
+    // Only fires here (session start), not on every track advance within the
+    // playlist, so timestamps reflect actual play sessions not track counts.
+    usePlaylistStore.getState().recordPlay(playlist.id);
   },
 
   /** Play an ad-hoc track list (shuffle play, etc.) */

@@ -21,10 +21,12 @@
  *   Sorting is memoized and never re-computed during the open session unless
  *   the playlists array reference changes (i.e., when the store updates).
  */
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import BottomSheet from '@/components/ui/BottomSheet';
 import { usePlaylistStore } from '@/store/usePlaylistStore';
+import { useToastStore } from '@/store/useToastStore';
 import { PlaylistArtwork } from '@/features/artwork';
+import { sortPlaylistsByRecency } from '@/features/playlists/playlistSort';
 
 interface PlaylistPickerSheetProps {
   isOpen:          boolean;
@@ -38,44 +40,44 @@ const PlaylistPickerSheet = ({
   isOpen, onClose, trackId, trackTitle, trackCoverUrl,
 }: PlaylistPickerSheetProps) => {
   const { playlists, addTrackToPlaylist, createPlaylist } = usePlaylistStore();
+  const showToast = useToastStore((s) => s.show);
 
   const [showNewForm, setShowNewForm] = useState(false);
   const [newTitle,    setNewTitle]    = useState('');
   const [isCreating,  setIsCreating]  = useState(false);
 
-  // Issue 6: sort by recency (updatedAt desc) — memoized on playlists reference
-  const sortedPlaylists = useMemo(() =>
-    [...playlists].sort((a, b) => {
-      const ta = new Date(a.updatedAt).getTime();
-      const tb = new Date(b.updatedAt).getTime();
-      return tb - ta; // most recently updated first
-    }),
-  [playlists]);
+  // Dedup protection: don't stack identical toasts from rapid taps.
+  // Stores the last toast message + timestamp; if the same message was shown
+  // within 800ms we skip showing it again.
+  const lastToastRef = useRef<{ msg: string; at: number }>({ msg: '', at: 0 });
 
-  // Issue 5: derive membership from live store — no local justAdded cache.
-  // The store is the source of truth; optimistic updates in addTrackToPlaylist
-  // update trackIds immediately so this reads the correct state instantly.
+  const fireToast = (msg: string) => {
+    const now = Date.now();
+    if (lastToastRef.current.msg === msg && now - lastToastRef.current.at < 800) return;
+    lastToastRef.current = { msg, at: now };
+    showToast(msg, 'playlist');
+  };
+
+  // Issue 2: use centralized sort — 4-field priority (lastInteractedAt → lastPlayedAt → updatedAt → alpha)
+  const sortedPlaylists = useMemo(
+    () => sortPlaylistsByRecency(playlists),
+    [playlists],
+  );
+
   const isInPlaylist = (playlistId: string) =>
     playlists.find((p) => p.id === playlistId)?.trackIds.includes(trackId) ?? false;
 
-  // Issue 5: toggle handler — adds or removes depending on current state
+  // Issue 4: toast feedback on toggle, with dedup guard
   const handleToggle = (playlistId: string) => {
+    const playlist = playlists.find((p) => p.id === playlistId);
+    if (!playlist) return;
+
     if (isInPlaylist(playlistId)) {
-      // Remove: find the entry. removeTrackFromPlaylist takes entryId.
-      // Since we don't have entryId here (PlaylistPickerSheet doesn't receive
-      // it), we use the trackId-based removal path. The store's
-      // removeTrackFromPlaylist accepts an entryId — we need the track-based
-      // variant. Use addTrackToPlaylist / store directly:
-      // NOTE: the store's removeTrackFromPlaylist takes entryId (from
-      // PlaylistTrackEntry), but we only have trackId here. We need
-      // the simpler removeTrackByTrackId variant. Add it if missing,
-      // or use the existing addTrackToPlaylist pattern to look up entryId.
-      const pl = playlists.find((p) => p.id === playlistId);
-      if (!pl) return;
-      // trackIds array stores raw trackIds. We remove by finding the entry.
       usePlaylistStore.getState().removeTrackByTrackId(playlistId, trackId);
+      fireToast(`Removed from ${playlist.title}`);
     } else {
       addTrackToPlaylist(playlistId, trackId);
+      fireToast(`Added to ${playlist.title}`);
     }
   };
 
