@@ -26,12 +26,13 @@
 
 import type { Album, Artist, Track } from '@/types/music';
 import type { Playlist } from '@/store/usePlaylistStore';
+import type { PlaylistFolder } from '@/store/useFolderStore';
 import type { UserLibraryEntry } from '@/store/useUserLibraryStore';
 import { slugify } from '@/utils/library';
 
 // ── Public interface ──────────────────────────────────────────────────────────
 
-export type LibraryEntityType = 'album' | 'artist' | 'playlist';
+export type LibraryEntityType = 'album' | 'artist' | 'playlist' | 'folder';
 
 export interface LibraryRenderable {
   /** Stable React key — includes type prefix to avoid cross-type collisions. */
@@ -42,13 +43,15 @@ export interface LibraryRenderable {
   title:             string;
   subtitle?:         string;
   tertiary?:         string;
-  /** Cover image URL — set for albums and artists. NOT used for playlists. */
+  /** Cover image URL — set for albums and artists. NOT used for playlists/folders. */
   imageUrl?:         string;
   coverShape:        'square' | 'circle';
-  /** True for playlists — signals LibraryCard/LibraryRow to use PlaylistArtwork. */
+  /** True for playlists/folders — signals LibraryCard/LibraryRow to use PlaylistArtwork. */
   playlistFallback:  boolean;
-  /** Raw playlist object — present when type === 'playlist'. Used by PlaylistArtwork. */
+  /** Raw playlist object — present when type === 'playlist'. */
   playlist?:         Playlist;
+  /** Raw folder object — present when type === 'folder'. */
+  folder?:           PlaylistFolder;
   /** Milliseconds timestamp for "Recently Added" sort. */
   sortDate:          number;
   /** Pre-lowercased title/name string for locale-aware A-Z / Z-A sort. */
@@ -119,6 +122,25 @@ function fromPlaylist(playlist: Playlist): LibraryRenderable {
   };
 }
 
+/** Convert a PlaylistFolder to a LibraryRenderable.
+ *  Folders render before playlists in the Playlists filter view. */
+function fromFolder(folder: PlaylistFolder): LibraryRenderable {
+  const count = folder.playlistIds.length;
+  return {
+    key:              `folder-${folder.id}`,
+    type:             'folder',
+    id:               folder.id,
+    route:            '',          // folders don't navigate — clicking expands inline
+    title:            folder.name,
+    subtitle:         `${count} ${count === 1 ? 'playlist' : 'playlists'}`,
+    coverShape:       'square',
+    playlistFallback: false,
+    folder:           folder,
+    sortDate:         new Date(folder.updatedAt).getTime(),
+    sortName:         folder.name,
+  };
+}
+
 // ── Sort pipeline ─────────────────────────────────────────────────────────────
 
 function sortRenderables(
@@ -156,6 +178,7 @@ export function buildRenderables(
   mode:               LibrarySortMode,
   include:            Set<LibraryEntityType> = new Set(['album', 'artist', 'playlist']),
   favoriteArtistIds?: string[],
+  folders:            PlaylistFolder[] = [],
 ): LibraryRenderable[] {
   void trackMap; // playlist covers resolved at render time by PlaylistArtwork
 
@@ -171,16 +194,11 @@ export function buildRenderables(
 
   if (include.has('artist')) {
     if (favoriteArtistIds && favoriteArtistIds.length > 0) {
-      // Issue 6: explicit-follow-only — only show favorited artists
       for (const artistId of favoriteArtistIds) {
         const artist = artistMap.get(artistId);
-        if (artist) {
-          // sortDate: use the follow timestamp if we had it — fallback to now
-          items.push(fromArtist(artist, Date.now()));
-        }
+        if (artist) items.push(fromArtist(artist, Date.now()));
       }
     } else if (!favoriteArtistIds) {
-      // Legacy fallback: derive from album entries (used when favoriteArtistIds not passed)
       const seenArtistIds = new Set<string>();
       for (const entry of entries) {
         const album = albumMap.get(entry.albumId);
@@ -193,14 +211,22 @@ export function buildRenderables(
         }
       }
     }
-    // If favoriteArtistIds is [] (empty array), no artists are shown — correct behavior
   }
 
   if (include.has('playlist')) {
+    // Folders appear before playlists — they are containers that group playlists
+    for (const folder of folders) {
+      items.push(fromFolder(folder));
+    }
     for (const pl of playlists) {
       items.push(fromPlaylist(pl));
     }
   }
 
-  return sortRenderables(items, mode);
+  // Folders don't participate in the sort pipeline (they float at top when
+  // playlist filter is active) but albums/artists/playlists do.
+  // Separate: sort non-folder items, then prepend folders.
+  const folderItems = items.filter((i) => i.type === 'folder');
+  const otherItems  = items.filter((i) => i.type !== 'folder');
+  return [...folderItems, ...sortRenderables(otherItems, mode)];
 }

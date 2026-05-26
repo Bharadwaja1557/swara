@@ -28,6 +28,7 @@ import { trackActions }       from '@/lib/trackActions';
 import SongRow                from '@/components/ui/SongRow';
 import { PlaylistArtwork }    from '@/features/artwork';
 import PlaylistEditModal      from '@/features/playlists/PlaylistEditModal';
+import FolderPickerSheet      from '@/components/ui/FolderPickerSheet';
 import ShuffleIcon            from '@/components/ui/ShuffleIcon';
 import type { Track }         from '@/types/music';
 import type { PlaylistTrackEntry } from '@/store/usePlaylistStore';
@@ -43,6 +44,7 @@ const PlaylistPage = () => {
   const [entries,     setEntries]     = useState<PlaylistTrackEntry[]>([]);
   const [loading,     setLoading]     = useState(true);
   const [editOpen,    setEditOpen]    = useState(false);
+  const [folderOpen,  setFolderOpen]  = useState(false);
 
   // Global shuffle state — synchronized across all player surfaces (Issue 7)
   const isShuffle    = usePlayerStore((s) => s.isShuffle);
@@ -173,6 +175,16 @@ const PlaylistPage = () => {
           </span>
           {trackCount > 0 && (
             <div className="flex items-center gap-2">
+              {/* Add to Folder */}
+              <button type="button" onClick={() => setFolderOpen(true)}
+                className="w-9 h-9 flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted transition-colors"
+                aria-label="Add to folder" title="Add to folder">
+                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                  strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
+                  <line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/>
+                </svg>
+              </button>
               {/* Shuffle toggle — global state */}
               <button type="button" onClick={toggleShuffle}
                 className={['w-9 h-9 flex items-center justify-center rounded-full transition-colors', isShuffle ? 'text-swara-accent' : 'text-swara-dim hover:text-swara-muted'].join(' ')}
@@ -242,6 +254,15 @@ const PlaylistPage = () => {
           isOpen={editOpen}
           onClose={() => setEditOpen(false)}
           onDeleted={() => navigate('/library', { replace: true })}
+        />
+      )}
+
+      {playlist && (
+        <FolderPickerSheet
+          isOpen={folderOpen}
+          onClose={() => setFolderOpen(false)}
+          playlistId={playlist.id}
+          playlistTitle={playlist.title}
         />
       )}
     </div>

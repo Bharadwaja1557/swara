@@ -18,10 +18,13 @@ const ArtistPage = () => {
   const [showAllSongs,   setShowAllSongs]   = useState(false);
   const [showAllAlbums,  setShowAllAlbums]  = useState(false);
 
-  // Issue 6: explicit artist follow — all hooks before any guard
-  const isFollowing = useFavoriteArtistsStore((s) => s.isFollowing);
-  const toggle      = useFavoriteArtistsStore((s) => s.toggle);
-  const showToast   = useToastStore((s) => s.show);
+  // Issue 4 fix: inline boolean selector — re-subscribes when favorites array changes.
+  // Using (s => s.isFollowing) returns a stable function ref that never triggers
+  // re-renders when the underlying favorites array mutates. The boolean selector
+  // (s => s.isFollowing(id ?? '')) re-evaluates every time s.favorites changes.
+  const followed = useFavoriteArtistsStore((s) => s.isFollowing(id ?? ''));
+  const toggle   = useFavoriteArtistsStore((s) => s.toggle);
+  const showToast = useToastStore((s) => s.show);
 
   const artist = artists.find((a) => a.id === id);
 
@@ -97,7 +100,7 @@ const ArtistPage = () => {
               {composerAlbums.length > 0 ? `${artistTracks.length > 0 ? ' · ' : ''}${composerAlbums.length} album${composerAlbums.length !== 1 ? 's' : ''}` : ''}
             </p>
 
-            {/* Issue 6: Follow / Unfollow button — explicit intent only */}
+            {/* Follow / Unfollow — reactive boolean selector (Issue 4) */}
             <button
               type="button"
               onClick={() => {
@@ -110,18 +113,18 @@ const ArtistPage = () => {
               }}
               className={[
                 'inline-flex items-center gap-1.5 h-8 px-4 rounded-full border text-[0.78rem] font-semibold transition-all',
-                isFollowing(id ?? '')
-                  ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                followed
+                  ? 'bg-swara-accent border-swara-accent text-swara-bg'
                   : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
               ].join(' ')}
-              aria-pressed={isFollowing(id ?? '')}
+              aria-pressed={followed}
             >
-              {isFollowing(id ?? '') ? (
+              {followed ? (
                 <>
                   <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
-                    <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
+                    <polyline points="20 6 9 17 4 12" stroke="currentColor" strokeWidth="3" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
                   </svg>
-                  Following
+                  Followed
                 </>
               ) : (
                 <>
