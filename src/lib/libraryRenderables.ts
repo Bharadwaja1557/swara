@@ -28,6 +28,7 @@ import type { Album, Artist, Track } from '@/types/music';
 import type { Playlist } from '@/store/usePlaylistStore';
 import type { PlaylistFolder } from '@/store/useFolderStore';
 import type { UserLibraryEntry } from '@/store/useUserLibraryStore';
+import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
 import { slugify } from '@/utils/library';
 
 // ── Public interface ──────────────────────────────────────────────────────────
@@ -54,11 +55,11 @@ export interface LibraryRenderable {
   folder?:           PlaylistFolder;
   /** Milliseconds timestamp for "Recently Added" sort. */
   sortDate:          number;
+  /** Milliseconds timestamp for "Recently Played" sort. 0 = never played. */
+  playedAt:          number;
   /** Pre-lowercased title/name string for locale-aware A-Z / Z-A sort. */
   sortName:          string;
 }
-
-export type LibrarySortMode = 'Recently Added' | 'A-Z' | 'Z-A';
 
 // ── Normalizers ───────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ function fromAlbum(album: Album, addedAt: number): LibraryRenderable {
     coverShape:       'square',
     playlistFallback: false,
     sortDate:         addedAt,
+    playedAt:         0,
     sortName:         album.title,
   };
 }
@@ -94,6 +96,7 @@ function fromArtist(artist: Artist, addedAt: number): LibraryRenderable {
     coverShape:       'circle',
     playlistFallback: false,
     sortDate:         addedAt,
+    playedAt:         0,
     sortName:         artist.name,
   };
 }
@@ -118,6 +121,7 @@ function fromPlaylist(playlist: Playlist): LibraryRenderable {
     playlistFallback: true,
     playlist:         playlist,
     sortDate:         new Date(playlist.updatedAt).getTime(),
+    playedAt:         playlist.lastPlayedAt ? new Date(playlist.lastPlayedAt).getTime() : 0,
     sortName:         playlist.title,
   };
 }
@@ -137,6 +141,7 @@ function fromFolder(folder: PlaylistFolder): LibraryRenderable {
     playlistFallback: false,
     folder:           folder,
     sortDate:         new Date(folder.updatedAt).getTime(),
+    playedAt:         0,
     sortName:         folder.name,
   };
 }
@@ -147,10 +152,14 @@ function sortRenderables(
   items: LibraryRenderable[],
   mode: LibrarySortMode,
 ): LibraryRenderable[] {
-  if (mode === 'A-Z') return [...items].sort((a, b) => a.sortName.localeCompare(b.sortName));
-  if (mode === 'Z-A') return [...items].sort((a, b) => b.sortName.localeCompare(a.sortName));
-  // 'Recently Added': newest first by sortDate
-  return [...items].sort((a, b) => b.sortDate - a.sortDate);
+  if (mode === 'A-Z')            return [...items].sort((a, b) => a.sortName.localeCompare(b.sortName));
+  if (mode === 'Z-A')            return [...items].sort((a, b) => b.sortName.localeCompare(a.sortName));
+  if (mode === 'Recently Added') return [...items].sort((a, b) => b.sortDate - a.sortDate);
+  // 'Recently Played' (default): items with playback history first (desc), then by sortDate
+  return [...items].sort((a, b) => {
+    if (b.playedAt !== a.playedAt) return b.playedAt - a.playedAt;
+    return b.sortDate - a.sortDate;  // tiebreak: recently added
+  });
 }
 
 // ── Public builders ───────────────────────────────────────────────────────────

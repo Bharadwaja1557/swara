@@ -385,12 +385,20 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
 
       console.log('[Playlists] cloud playlists fetched:', cloudPlaylists.length);
 
-      // Cloud is authoritative for metadata. Preserve any locally loaded trackIds
-      // so PlaylistPage doesn't lose track lists that were already fetched.
-      // coverId comes from the cloud response (cover_id DB column).
+      // Cloud is authoritative for metadata AND trackIds.
+      // getAllPlaylists() now fetches trackIds via Q2 batch join — trust them.
+      // Only fall back to locally-loaded trackIds if the cloud returned an
+      // empty array (edge case: cloud returned stubs without entries).
       const merged = cloudPlaylists.map((cloud) => {
         const local = get().playlists.find((p) => p.id === cloud.id);
-        return { ...cloud, trackIds: local?.trackIds ?? [] };
+        // Prefer cloud trackIds (populated by Q2 batch query).
+        // Fall back to local only if cloud returned empty AND local has data
+        // (preserves any extra tracks loaded by loadPlaylistTracks).
+        const trackIds =
+          cloud.trackIds.length > 0
+            ? cloud.trackIds
+            : (local?.trackIds ?? []);
+        return { ...cloud, trackIds };
       });
 
       writeCache(merged);

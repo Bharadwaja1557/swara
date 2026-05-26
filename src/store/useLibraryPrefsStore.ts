@@ -23,7 +23,7 @@ import { create } from 'zustand';
 
 const KEY = 'swara:library_prefs_v1';
 
-export type LibrarySortMode = 'Recently Added' | 'A-Z' | 'Z-A';
+export type LibrarySortMode = 'Recently Played' | 'Recently Added' | 'A-Z' | 'Z-A';
 export type LibraryViewMode = 'grid' | 'list';
 export type LibraryTab      = 'All' | 'Playlists' | 'Albums' | 'Artists';
 
@@ -34,12 +34,12 @@ export interface LibraryPrefs {
 }
 
 const DEFAULTS: LibraryPrefs = {
-  sort: 'Recently Added',
+  sort: 'Recently Played',
   view: 'list',
   tab:  'All',
 };
 
-const VALID_SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
+const VALID_SORTS: LibrarySortMode[] = ['Recently Played', 'Recently Added', 'A-Z', 'Z-A'];
 const VALID_VIEWS: LibraryViewMode[] = ['grid', 'list'];
 const VALID_TABS:  LibraryTab[]      = ['All', 'Playlists', 'Albums', 'Artists'];
 

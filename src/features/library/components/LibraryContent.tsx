@@ -49,7 +49,7 @@ type ViewMode = 'list' | 'grid';
 /** Radio filter — exactly one always active. */
 type LibraryFilter = 'playlists' | 'albums' | 'artists';
 
-const SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
+const SORTS: LibrarySortMode[] = ['Recently Played', 'Recently Added', 'A-Z', 'Z-A'];
 
 const CHIPS: { label: string; value: LibraryFilter }[] = [
   { label: 'Playlists', value: 'playlists' },
