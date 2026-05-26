@@ -1,21 +1,18 @@
 /**
- * LibraryRow — shared list row for Albums, Artists, and Playlists.
- *
- * For playlists: pass the raw `playlist` prop — cover rendered by
- * <PlaylistArtwork> (uploaded → preset → collage → single → placeholder).
- * For albums/artists: pass `coverUrl` as before.
+ * LibraryRow — shared list row for Albums, Artists, Playlists, and Folders.
  */
-
 import { PlaylistArtwork } from '@/features/artwork';
+import FolderArtwork from '@/components/ui/FolderArtwork';
 import type { Playlist } from '@/store/usePlaylistStore';
+import type { PlaylistFolder } from '@/store/useFolderStore';
 
 interface LibraryRowProps {
   title:        string;
   subtitle?:    string;
   tertiary?:    string;
   coverUrl?:    string;
-  /** Raw playlist — set for playlist items. Drives PlaylistArtwork. */
   playlist?:    Playlist;
+  folder?:      PlaylistFolder;
   coverShape?:  'square' | 'circle';
   isActive?:    boolean;
   onClick:      () => void;
@@ -24,12 +21,12 @@ interface LibraryRowProps {
 }
 
 const LibraryRow = ({
-  title, subtitle, tertiary, coverUrl, playlist,
+  title, subtitle, tertiary, coverUrl, playlist, folder,
   coverShape = 'square', isActive = false,
   onClick, compact = false, showChevron,
 }: LibraryRowProps) => {
   const isCircle = coverShape === 'circle';
-
+  // Issue 3 fix: exact same responsive class string as LibraryRow was always supposed to use
   const imgSize   = compact ? 'w-14 h-14' : 'w-[72px] h-[72px] lg:w-[100px] lg:h-[100px]';
   const roundCls  = isCircle ? 'rounded-full' : 'rounded-xl';
   const titleSize = compact ? 'text-[0.88rem]' : 'text-[0.95rem] lg:text-[1.05rem]';
@@ -49,10 +46,11 @@ const LibraryRow = ({
         isActive ? 'bg-swara-card' : '',
       ].filter(Boolean).join(' ')}
     >
-      {/* Cover */}
       <div className={[imgSize, roundCls, 'flex-shrink-0 overflow-hidden'].join(' ')}>
         {playlist ? (
           <PlaylistArtwork playlist={playlist} size={0} className="w-full h-full" />
+        ) : folder ? (
+          <FolderArtwork folder={folder} size={0} className="w-full h-full" />
         ) : coverUrl ? (
           <img src={coverUrl} alt=""
             className="w-full h-full object-cover bg-swara-elevated"
@@ -62,7 +60,6 @@ const LibraryRow = ({
         )}
       </div>
 
-      {/* Text */}
       <div className="flex-1 min-w-0">
         <p className={[titleSize, 'font-semibold truncate leading-snug',
           isActive ? 'text-swara-accent' : 'text-swara-text'].join(' ')}>

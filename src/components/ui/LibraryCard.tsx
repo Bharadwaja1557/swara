@@ -9,25 +9,24 @@
  */
 
 import { PlaylistArtwork } from '@/features/artwork';
+import FolderArtwork from '@/components/ui/FolderArtwork';
 import type { Playlist } from '@/store/usePlaylistStore';
+import type { PlaylistFolder } from '@/store/useFolderStore';
 
 interface LibraryCardProps {
-  title:            string;
-  subtitle?:        string;
-  coverUrl?:        string;
-  /** Raw playlist — set for playlist items. Drives PlaylistArtwork. */
-  playlist?:        Playlist;
-  /** 'circle' for artists, 'square' for albums/playlists. Default: 'square'. */
-  coverShape?:      'square' | 'circle';
-  /** Highlight title in accent colour (desktop sidebar active route). */
-  isActive?:        boolean;
-  onClick:          () => void;
-  /** compact = sidebar sizing, default = page sizing. */
-  compact?:         boolean;
+  title:        string;
+  subtitle?:    string;
+  coverUrl?:    string;
+  playlist?:    Playlist;
+  folder?:      PlaylistFolder;
+  coverShape?:  'square' | 'circle';
+  isActive?:    boolean;
+  onClick:      () => void;
+  compact?:     boolean;
 }
 
 const LibraryCard = ({
-  title, subtitle, coverUrl, playlist, coverShape = 'square',
+  title, subtitle, coverUrl, playlist, folder, coverShape = 'square',
   isActive = false, onClick, compact = false,
 }: LibraryCardProps) => {
   const isCircle   = coverShape === 'circle';
@@ -44,7 +43,6 @@ const LibraryCard = ({
         compact ? 'rounded-xl p-1.5 hover:bg-swara-card' : '',
       ].filter(Boolean).join(' ')}
     >
-      {/* Cover */}
       <div className={[
         'w-full aspect-square overflow-hidden flex-shrink-0',
         coverClass,
@@ -52,6 +50,8 @@ const LibraryCard = ({
       ].filter(Boolean).join(' ')}>
         {playlist ? (
           <PlaylistArtwork playlist={playlist} size={0} className="w-full h-full" />
+        ) : folder ? (
+          <FolderArtwork folder={folder} size={0} className="w-full h-full" />
         ) : coverUrl ? (
           <img src={coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
         ) : (
@@ -59,7 +59,6 @@ const LibraryCard = ({
         )}
       </div>
 
-      {/* Labels */}
       <p className={[
         titleSize, 'font-medium truncate w-full leading-snug mt-0.5',
         isActive ? 'text-swara-accent' : 'text-swara-text',

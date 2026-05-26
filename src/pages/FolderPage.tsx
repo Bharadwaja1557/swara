@@ -12,7 +12,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useFolderStore }    from '@/store/useFolderStore';
 import { usePlaylistStore }  from '@/store/usePlaylistStore';
 import LibraryRow            from '@/components/ui/LibraryRow';
-import FolderPickerSheet     from '@/components/ui/FolderPickerSheet';
+import FolderArtwork         from '@/components/ui/FolderArtwork';
+import PlaylistPickerForFolderSheet from '@/components/ui/PlaylistPickerForFolderSheet';
 
 const FolderPage = () => {
   const { id }       = useParams<{ id: string }>();
@@ -71,30 +72,14 @@ const FolderPage = () => {
       {/* Hero */}
       <div className="px-6 lg:px-10 mb-4 lg:mb-8">
         <div className="flex flex-col lg:flex-row lg:items-end lg:gap-10">
-          {/* Folder artwork — 2×2 collage of first 4 playlist covers, or placeholder */}
-          <div className="flex justify-center lg:justify-start mb-5 lg:mb-0 flex-shrink-0">
-            <div className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl overflow-hidden bg-swara-card"
-              style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}>
-              {folderPlaylists.length >= 4 ? (
-                <div className="w-full h-full grid grid-cols-2 grid-rows-2">
-                  {folderPlaylists.slice(0, 4).map((pl) => (
-                    <img key={pl.id} src={pl.coverImageUrl ?? ''}
-                      alt="" className="w-full h-full object-cover bg-swara-elevated" loading="lazy" />
-                  ))}
-                </div>
-              ) : folderPlaylists.length >= 1 && folderPlaylists[0].coverImageUrl ? (
-                <img src={folderPlaylists[0].coverImageUrl} alt=""
-                  className="w-full h-full object-cover" loading="lazy" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center">
-                  <svg viewBox="0 0 24 24" width="64" height="64" fill="none"
-                    stroke="rgba(200,169,106,0.3)" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/>
-                  </svg>
-                </div>
-              )}
+            <div className="flex justify-center lg:justify-start mb-5 lg:mb-0 flex-shrink-0">
+              <FolderArtwork
+                folder={folder}
+                size={0}
+                className="w-[200px] h-[200px] lg:w-[280px] lg:h-[280px] rounded-2xl"
+                style={{ boxShadow: '0 8px 40px rgba(0,0,0,0.6)' }}
+              />
             </div>
-          </div>
 
           {/* Meta */}
           <div className="lg:flex-1 lg:min-w-0 lg:pb-1">
@@ -233,13 +218,14 @@ const FolderPage = () => {
         </div>
       </div>
 
-      {/* FolderPickerSheet reused for "Add playlists" — shows which playlists are in this folder */}
+      {/* PlaylistPickerForFolderSheet — shows PLAYLISTS, toggles which belong to this folder.
+          Distinct from FolderPickerSheet (which shows FOLDERS, for a given playlist). */}
       {folder && (
-        <FolderPickerSheet
+        <PlaylistPickerForFolderSheet
           isOpen={addOpen}
           onClose={() => setAddOpen(false)}
-          playlistId=""
-          playlistTitle={`Manage playlists in "${folder.name}"`}
+          folderId={folder.id}
+          folderName={folder.name}
         />
       )}
     </div>
