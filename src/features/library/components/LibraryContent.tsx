@@ -1,20 +1,25 @@
 /**
  * src/features/library/components/LibraryContent.tsx
  *
- * Canonical library renderer — identical hierarchy on page and panel.
+ * Canonical library renderer — identical on page and panel.
  *
- * ── EXACT LAYOUT (Issues 2) ──────────────────────────────────────────────────
- *   1. Header:   [My Library]                    [+ create]
- *   2. Chips:    [Playlists] [Albums] [Artists]
- *   3. Controls: [Sort dropdown]     [Grid/List toggle]   ← view toggle HERE
+ * ── LAYOUT ────────────────────────────────────────────────────────────────────
+ *   1. Header:   [My Library]                          [+ create]
+ *   2. Chips:    [Playlists] [Albums] [Artists]         ← radio buttons
+ *   3. Controls: [Sort dropdown]          [Grid/List toggle]
  *   4. Content
  *
- * ── FILTER RULES (Issue 3) ───────────────────────────────────────────────────
- *   At least one chip always active — deselecting last chip is a no-op.
- *   Artists exclusive with Playlists + Albums.
+ * ── FILTER ARCHITECTURE (Issue 2 fix) ────────────────────────────────────────
+ *   Single radio value:  type LibraryFilter = 'playlists' | 'albums' | 'artists'
+ *   Exactly one always active. Default: 'playlists'.
+ *   Zero guard logic, zero multi-select complexity.
  *
- * ── LIKED SONGS SIZING (Issue 3 desktop fix) ─────────────────────────────────
- *   LikedSongsRow cover uses the EXACT same class string as LibraryRow:
+ *   playlists → folders + standalone playlists (not-in-folder)
+ *   albums    → user album library
+ *   artists   → explicitly followed artists
+ *
+ * ── LIKED SONGS SIZING ───────────────────────────────────────────────────────
+ *   Exact same imgSize string as LibraryRow:
  *     compact → 'w-14 h-14'
  *     page    → 'w-[72px] h-[72px] lg:w-[100px] lg:h-[100px]'
  */
@@ -40,18 +45,25 @@ import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
 
 export type LibraryContentMode = 'page' | 'panel';
 type ViewMode = 'list' | 'grid';
+
+/** Radio filter — exactly one always active. */
+type LibraryFilter = 'playlists' | 'albums' | 'artists';
+
 const SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
 
+const CHIPS: { label: string; value: LibraryFilter }[] = [
+  { label: 'Playlists', value: 'playlists' },
+  { label: 'Albums',    value: 'albums'    },
+  { label: 'Artists',   value: 'artists'   },
+];
+
 // ── Liked Songs row ───────────────────────────────────────────────────────────
-// Issue 3 (desktop): imgSize EXACTLY matches LibraryRow's imgSize:
-//   compact → 'w-14 h-14'
-//   page    → 'w-[72px] h-[72px] lg:w-[100px] lg:h-[100px]'
+// imgSize exactly matches LibraryRow's imgSize string
 const LikedSongsRow = ({
   count, compact, onClick,
 }: { count: number; compact: boolean; onClick: () => void }) => {
   const imgSize  = compact ? 'w-14 h-14' : 'w-[72px] h-[72px] lg:w-[100px] lg:h-[100px]';
   const iconSize = compact ? 16 : 26;
-
   return (
     <button type="button" onClick={onClick}
       className={[
@@ -70,9 +82,7 @@ const LikedSongsRow = ({
         <p className={[
           compact ? 'text-[0.88rem]' : 'text-[0.95rem] lg:text-[1.05rem]',
           'font-semibold text-swara-text truncate leading-snug',
-        ].join(' ')}>
-          Liked Songs
-        </p>
+        ].join(' ')}>Liked Songs</p>
         <p className={[
           compact ? 'text-[0.76rem]' : 'text-[0.8rem] lg:text-[0.88rem]',
           'text-swara-muted truncate mt-0.5',
@@ -91,7 +101,7 @@ const LikedSongsRow = ({
   );
 };
 
-// ── Content renderers ─────────────────────────────────────────────────────────
+// ── Renderers ─────────────────────────────────────────────────────────────────
 
 const RenderableGrid = ({
   items, compact, activeRoute, onNavigate,
@@ -149,9 +159,8 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
   const [sortOpen,   setSortOpen]   = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const [showPlaylists, setShowPlaylists] = useState(true);
-  const [showAlbums,    setShowAlbums]    = useState(true);
-  const [showArtists,   setShowArtists]   = useState(false);
+  // Issue 2 fix: single radio value — zero boolean guards, zero multi-select logic
+  const [filter, setFilter] = useState<LibraryFilter>('playlists');
 
   const { albumMap, artistMap, trackMap } = useLibraryStore();
   const entries    = useUserLibraryStore((s) => s.entries);
@@ -161,53 +170,34 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
   const favorites  = useFavoriteArtistsStore((s) => s.favorites);
   const favoriteArtistIds = useMemo(() => favorites.map((f) => f.artistId), [favorites]);
 
-  // Filter chip handlers — at-least-one invariant
-  const handleTogglePlaylists = () => {
-    if (showPlaylists && !showAlbums && !showArtists) return; // would leave none active
-    setShowPlaylists((v) => !v);
-    setShowArtists(false);
-  };
-  const handleToggleAlbums = () => {
-    if (showAlbums && !showPlaylists && !showArtists) return;
-    setShowAlbums((v) => !v);
-    setShowArtists(false);
-  };
-  const handleToggleArtists = () => {
-    if (!showArtists) {
-      setShowArtists(true); setShowPlaylists(false); setShowAlbums(false);
-    } else {
-      setShowArtists(false); setShowPlaylists(true); setShowAlbums(true);
+  // Derive include set from radio filter — clean and direct
+  const include = useMemo((): Set<LibraryEntityType> => {
+    switch (filter) {
+      case 'playlists': return new Set<LibraryEntityType>(['playlist']);
+      case 'albums':    return new Set<LibraryEntityType>(['album']);
+      case 'artists':   return new Set<LibraryEntityType>(['artist']);
     }
-  };
-
-  const handleSetSort = useCallback((s: LibrarySortMode) => { setSort(s); setSortOpen(false); }, [setSort]);
-  const handleSetView = useCallback((v: ViewMode) => { setView(v); }, [setView]);
-  const handleNavigate = useCallback((route: string) => { navigate(route); }, [navigate]);
-
-  const include = useMemo(() => {
-    const s = new Set<LibraryEntityType>();
-    if (showPlaylists) s.add('playlist');
-    if (showAlbums)    s.add('album');
-    if (showArtists)   s.add('artist');
-    if (s.size === 0) { s.add('album'); s.add('playlist'); }
-    return s;
-  }, [showPlaylists, showAlbums, showArtists]);
+  }, [filter]);
 
   const renderables = useMemo(
     () => buildRenderables(
       entries, albumMap, artistMap, playlists, trackMap, sort, include,
-      showArtists ? favoriteArtistIds : undefined,
-      showPlaylists ? folders : [],
+      filter === 'artists' ? favoriteArtistIds : undefined,
+      filter === 'playlists' ? folders : [],
     ),
     [entries, albumMap, artistMap, playlists, trackMap, sort, include,
-     favoriteArtistIds, showArtists, folders, showPlaylists],
+     favoriteArtistIds, filter, folders],
   );
 
   const hasAnyContent     = entries.length > 0 || playlists.length > 0;
   const currentTabIsEmpty = renderables.length === 0;
   const px = compact ? 'px-3' : 'px-5 lg:px-8';
 
-  // Shared view toggle JSX — rendered in Section 3 (controls row) on BOTH modes
+  const handleSetSort = useCallback((s: LibrarySortMode) => { setSort(s); setSortOpen(false); }, [setSort]);
+  const handleSetView = useCallback((v: ViewMode) => { setView(v); }, [setView]);
+  const handleNavigate = useCallback((route: string) => { navigate(route); }, [navigate]);
+
+  // View toggle — appears in Section 3 (controls row)
   const viewToggle = (
     <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-lg p-0.5">
       {(['list', 'grid'] as ViewMode[]).map((v) => (
@@ -238,7 +228,7 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
 
   return (
     <>
-      {/* ── Section 1: Header — [My Library] [+ create] ── */}
+      {/* ── Section 1: Header ── */}
       <div className={`${px} ${compact ? 'pt-5 pb-2' : 'pt-6 pb-2'}`}>
         <div className="flex items-center justify-between mb-3">
           {compact ? (
@@ -250,7 +240,6 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
               My Library
             </h1>
           )}
-          {/* + button ONLY — view toggle moved to Section 3 */}
           <button type="button" onClick={() => setCreateOpen(true)}
             className={[
               'flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted hover:bg-swara-card transition-all',
@@ -265,18 +254,17 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
           </button>
         </div>
 
-        {/* ── Section 2: Filter chips ── */}
-        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
-          {[
-            { label: 'Playlists', active: showPlaylists && !showArtists, handler: handleTogglePlaylists },
-            { label: 'Albums',    active: showAlbums    && !showArtists, handler: handleToggleAlbums    },
-            { label: 'Artists',   active: showArtists,                   handler: handleToggleArtists   },
-          ].map(({ label, active, handler }) => (
-            <button key={label} type="button" onClick={handler}
+        {/* ── Section 2: Radio filter chips ── */}
+        <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5" role="radiogroup" aria-label="Library filter">
+          {CHIPS.map(({ label, value }) => (
+            <button key={value} type="button"
+              role="radio"
+              aria-checked={filter === value}
+              onClick={() => setFilter(value)}
               className={[
                 'flex-shrink-0 rounded-full font-medium border transition-all duration-200',
                 compact ? 'px-3 py-0.5 text-[0.7rem]' : 'px-4 py-1.5 text-[0.82rem]',
-                active
+                filter === value
                   ? 'bg-swara-accent border-swara-accent text-swara-bg'
                   : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
               ].join(' ')}>
@@ -288,10 +276,9 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
 
       <div className={`${compact ? 'mx-3' : 'mx-5 lg:mx-8'} h-px bg-swara-border opacity-50 mb-2`} />
 
-      {/* ── Section 3: Controls — [Sort]  [View toggle] — shown when content exists ── */}
+      {/* ── Section 3: Controls — [Sort] [View toggle] ── */}
       {hasAnyContent && !currentTabIsEmpty && (
         <div className={`flex items-center justify-between ${px} mb-3`}>
-          {/* Sort */}
           <div className="relative">
             <button type="button" onClick={() => setSortOpen((o) => !o)}
               className={[
@@ -328,8 +315,6 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
               </div>
             )}
           </div>
-
-          {/* View toggle — now in controls row, not header */}
           {viewToggle}
         </div>
       )}
@@ -367,13 +352,15 @@ const LibraryContent = ({ mode }: { mode: LibraryContentMode }) => {
 
         {hasAnyContent && (
           <>
-            {!showArtists && (
+            {/* Liked Songs — shown only in playlists and albums filters, not artists */}
+            {filter !== 'artists' && (
               <LikedSongsRow count={likedCount} compact={compact} onClick={() => navigate('/liked')} />
             )}
 
+            {/* Per-filter empty state */}
             {currentTabIsEmpty && (
               <div className="flex flex-col items-center py-8 gap-2 text-center">
-                {showArtists ? (
+                {filter === 'artists' ? (
                   <>
                     {!compact && (
                       <div className="w-12 h-12 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim mb-1">

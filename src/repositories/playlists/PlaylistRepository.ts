@@ -72,14 +72,23 @@ export const PlaylistRepository = {
   // ── Read ──────────────────────────────────────────────────────────────────
 
   /**
-   * Fetch all playlists for the current user (stubs, no track lists).
-   * Ordered by most recently updated first.
+   * Fetch all playlists for the current user with their track ID lists.
+   *
+   * Uses TWO queries — not N+1:
+   *   Q1: all playlist stubs
+   *   Q2: all playlist_tracks for those playlist IDs (single IN query)
+   * Then groups track IDs by playlist_id client-side.
+   *
+   * This is what makes playlist artwork work immediately in Library without
+   * requiring the user to open each playlist first.
+   * trackIds on each playlist drives resolvePlaylistArtwork() → collage.
    */
   async getAllPlaylists(): Promise<Playlist[]> {
     console.log('[PlaylistRepo] getAllPlaylists: fetching...');
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { console.warn('[PlaylistRepo] getAllPlaylists: not authenticated'); return []; }
 
+    // Q1: playlist stubs
     const { data, error } = await supabase
       .from('playlists')
       .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
@@ -90,7 +99,37 @@ export const PlaylistRepository = {
       return [];
     }
 
-    const playlists = (data ?? []).map(rowToPlaylist);
+    const stubs = (data ?? []).map(rowToPlaylist);
+    if (stubs.length === 0) return [];
+
+    const playlistIds = stubs.map((p) => p.id);
+
+    // Q2: all track entries for these playlists in one shot
+    const { data: trackRows, error: trackErr } = await supabase
+      .from('playlist_tracks')
+      .select('playlist_id, track_id')
+      .in('playlist_id', playlistIds)
+      .order('position', { ascending: true });
+
+    if (trackErr) {
+      // Log but don't fail — return stubs with empty trackIds
+      console.error('[PlaylistRepo] getAllPlaylists track entries ERROR:', trackErr.message);
+    }
+
+    // Group track IDs by playlist_id
+    const trackMap = new Map<string, string[]>();
+    for (const row of ((trackRows ?? []) as { playlist_id: string; track_id: string }[])) {
+      const list = trackMap.get(row.playlist_id) ?? [];
+      list.push(row.track_id);
+      trackMap.set(row.playlist_id, list);
+    }
+
+    // Merge trackIds into stubs
+    const playlists = stubs.map((p) => ({
+      ...p,
+      trackIds: trackMap.get(p.id) ?? [],
+    }));
+
     console.log('[PlaylistRepo] getAllPlaylists: fetched', playlists.length, 'playlists');
     return playlists;
   },

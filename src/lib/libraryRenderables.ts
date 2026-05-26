@@ -214,11 +214,24 @@ export function buildRenderables(
   }
 
   if (include.has('playlist')) {
-    // Folders appear before playlists — they are containers that group playlists
+    // Build the set of playlist IDs that live inside at least one folder.
+    // These must NOT appear at the top-level playlists section — they are
+    // already visible inside their folder cards / folder pages.
+    // This is computed here (data layer) not in JSX (view layer).
+    const playlistIdsInsideFolders = new Set(
+      folders.flatMap((f) => f.playlistIds)
+    );
+
+    // Folders first — they are containers and float above sorted content
     for (const folder of folders) {
       items.push(fromFolder(folder));
     }
-    for (const pl of playlists) {
+
+    // Only standalone playlists — ones not belonging to any folder
+    const standalonePlaylists = playlists.filter(
+      (p) => !playlistIdsInsideFolders.has(p.id)
+    );
+    for (const pl of standalonePlaylists) {
       items.push(fromPlaylist(pl));
     }
   }
