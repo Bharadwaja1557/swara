@@ -130,7 +130,7 @@ function fromFolder(folder: PlaylistFolder): LibraryRenderable {
     key:              `folder-${folder.id}`,
     type:             'folder',
     id:               folder.id,
-    route:            '',          // folders don't navigate — clicking expands inline
+    route:            `/folder/${folder.id}`,
     title:            folder.name,
     subtitle:         `${count} ${count === 1 ? 'playlist' : 'playlists'}`,
     coverShape:       'square',

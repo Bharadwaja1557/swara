@@ -9,6 +9,7 @@ import ProfilePage    from '@/pages/ProfilePage';
 import LikedSongsPage from '@/pages/LikedSongsPage';
 import QueuePage      from '@/pages/QueuePage';
 import PlaylistPage   from '@/pages/PlaylistPage';
+import FolderPage     from '@/pages/FolderPage';
 
 function App() {
   return (
@@ -24,6 +25,7 @@ function App() {
           <Route path="/profile"       element={<ProfilePage />} />
           <Route path="/queue"         element={<QueuePage />} />
           <Route path="/playlist/:id"  element={<PlaylistPage />} />
+          <Route path="/folder/:id"    element={<FolderPage />} />
         </Route>
       </Routes>
     </HashRouter>

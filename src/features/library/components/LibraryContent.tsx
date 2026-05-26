@@ -1,27 +1,24 @@
 /**
  * src/features/library/components/LibraryContent.tsx
  *
- * THE canonical library renderer.
- * Used by both LibraryPage (full mobile+desktop page) and LibraryPanel
- * (desktop left sidebar). All filter chips, sort controls, content grids,
- * folder handling, and empty states live here — once.
+ * THE canonical library renderer, shared by LibraryPage and LibraryPanel.
+ * mode="page"  → full-page layout (mobile + desktop content area)
+ * mode="panel" → compact sidebar (desktop left sidebar)
  *
- * PROPS:
- *   mode: 'page'  — full-page layout (LibraryPage)
- *   mode: 'panel' — compact sidebar layout (LibraryPanel)
+ * ── LAYOUT HIERARCHY (Issue 2 — identical on both surfaces) ──────────────────
+ *   1. Header row:  [My Library]  [view toggle]  [+ button]
+ *   2. Filter chips
+ *   3. Controls row: [Sort dropdown]   (view toggle already in header)
+ *   4. Content
  *
- * Outer shell (scrollable container, padding) is handled by the caller.
- * This component emits an unstyled fragment; callers wrap it.
+ * ── FILTER CHIP RULES (Issue 3) ──────────────────────────────────────────────
+ *   • At least ONE chip must always be active — deselecting the last chip is a no-op
+ *   • Artists is exclusive with Playlists + Albums
+ *   • Playlists + Albums may coexist
  *
- * FILTER CHIP LOGIC:
- *   Playlists, Albums: independently toggleable
- *   Artists: exclusive — activating it deactivates Playlists + Albums
- *   Deactivating Artists restores Playlists + Albums
- *
- * FOLDER RENDERING (Issue 2):
- *   Folders appear at top of Playlists view via buildRenderables.
- *   FolderRow/FolderCard are rendered inline — clicking a folder
- *   expands it in-place (no navigation).
+ * ── LIKED SONGS SIZING (Issue 4) ─────────────────────────────────────────────
+ *   List mode: cover matches LibraryRow dimensions exactly
+ *   Grid mode: retains existing larger card sizing (not shown in list)
  */
 
 import { useState, useMemo, useCallback } from 'react';
@@ -41,9 +38,7 @@ import {
   type LibraryRenderable,
   type LibraryEntityType,
 } from '@/lib/libraryRenderables';
-import type { LibrarySortMode }           from '@/store/useLibraryPrefsStore';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
+import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
 
 export type LibraryContentMode = 'page' | 'panel';
 type ViewMode = 'list' | 'grid';
@@ -51,33 +46,43 @@ type ViewMode = 'list' | 'grid';
 const SORTS: LibrarySortMode[] = ['Recently Added', 'A-Z', 'Z-A'];
 
 // ── Liked Songs row ───────────────────────────────────────────────────────────
+// Issue 4: List-mode cover uses the same dimensions as LibraryRow (w-10 h-10
+// compact, w-[72px] h-[72px] page). Grid mode is intentionally not shown here.
 
 const LikedSongsRow = ({
   count, compact, onClick,
 }: { count: number; compact: boolean; onClick: () => void }) => {
-  const imgCls = compact ? 'w-10 h-10 rounded-lg' : 'w-[72px] h-[72px] rounded-xl';
+  // Exact match to LibraryRow cover dimensions
+  const imgCls = compact
+    ? 'w-10 h-10 rounded-lg'
+    : 'w-[72px] h-[72px] lg:w-[100px] lg:h-[100px] rounded-xl';
+
   return (
     <button type="button" onClick={onClick}
       className={[
         'flex items-center w-full text-left rounded-xl transition-all',
         compact
           ? 'gap-3 px-2 py-3 hover:bg-swara-card'
-          : 'gap-4 lg:gap-5 py-3 px-3 hover:bg-swara-card active:scale-[0.98]',
+          : 'gap-4 lg:gap-5 py-3 px-2 hover:bg-swara-card active:scale-[0.98]',
       ].join(' ')}>
       <div className={`${imgCls} flex-shrink-0 flex items-center justify-center`}
         style={{ background: 'linear-gradient(135deg, #1e0b0b 0%, #2d1212 50%, #1a0808 100%)' }}>
-        <svg viewBox="0 0 24 24" width={compact ? 18 : 28} height={compact ? 18 : 28}
+        <svg viewBox="0 0 24 24" width={compact ? 16 : 26} height={compact ? 16 : 26}
           fill="#c8a96e" aria-hidden="true">
           <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
         </svg>
       </div>
       <div className="flex-1 min-w-0">
-        <p className={[compact ? 'text-[0.82rem]' : 'text-[1rem] lg:text-[1.05rem]',
-          'font-semibold text-swara-text truncate leading-snug'].join(' ')}>
+        <p className={[
+          compact ? 'text-[0.82rem]' : 'text-[0.95rem] lg:text-[1.05rem]',
+          'font-semibold text-swara-text truncate leading-snug',
+        ].join(' ')}>
           Liked Songs
         </p>
-        <p className={[compact ? 'text-[0.68rem]' : 'text-[0.8rem] lg:text-[0.88rem]',
-          'text-swara-muted truncate mt-0.5'].join(' ')}>
+        <p className={[
+          compact ? 'text-[0.68rem]' : 'text-[0.8rem] lg:text-[0.88rem]',
+          'text-swara-muted truncate mt-0.5',
+        ].join(' ')}>
           {count > 0 ? `${count} songs` : 'Your saved favorites'}
         </p>
       </div>
@@ -113,7 +118,7 @@ const RenderableGrid = ({
         coverUrl={item.playlist ? undefined : item.imageUrl}
         playlist={item.playlist}
         coverShape={item.coverShape}
-        isActive={activeRoute.includes(item.route)}
+        isActive={!!item.route && activeRoute.includes(item.route)}
         compact={compact}
         onClick={() => item.route && onNavigate(item.route)}
       />
@@ -139,7 +144,7 @@ const RenderableList = ({
         coverUrl={item.playlist ? undefined : item.imageUrl}
         playlist={item.playlist}
         coverShape={item.coverShape}
-        isActive={activeRoute.includes(item.route)}
+        isActive={!!item.route && activeRoute.includes(item.route)}
         compact={compact}
         showChevron={!compact}
         onClick={() => item.route && onNavigate(item.route)}
@@ -183,22 +188,32 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
     [favorites],
   );
 
-  // ── Filter chip handlers ──────────────────────────────────────────────────
+  // ── Filter chip handlers (Issue 3: at-least-one-chip invariant) ───────────
 
   const handleTogglePlaylists = () => {
+    // Cannot deselect if it's the only active chip
+    const wouldLeaveNoneActive = showPlaylists && !showAlbums && !showArtists;
+    if (wouldLeaveNoneActive) return; // no-op
     setShowPlaylists((v) => !v);
-    setShowArtists(false);
+    setShowArtists(false); // artists is exclusive
   };
+
   const handleToggleAlbums = () => {
+    const wouldLeaveNoneActive = showAlbums && !showPlaylists && !showArtists;
+    if (wouldLeaveNoneActive) return; // no-op
     setShowAlbums((v) => !v);
-    setShowArtists(false);
+    setShowArtists(false); // artists is exclusive
   };
+
   const handleToggleArtists = () => {
     if (!showArtists) {
+      // Activate artists exclusively
       setShowArtists(true);
       setShowPlaylists(false);
       setShowAlbums(false);
     } else {
+      // Deactivate artists — Artists was the only active chip, restoring
+      // Playlists + Albums (the "default all" state). Never leaves 0 active.
       setShowArtists(false);
       setShowPlaylists(true);
       setShowAlbums(true);
@@ -224,7 +239,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
     if (showPlaylists) s.add('playlist');
     if (showAlbums)    s.add('album');
     if (showArtists)   s.add('artist');
-    if (s.size === 0) { s.add('album'); s.add('playlist'); }
+    if (s.size === 0) { s.add('album'); s.add('playlist'); } // safety fallback
     return s;
   }, [showPlaylists, showAlbums, showArtists]);
 
@@ -239,70 +254,89 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
      favoriteArtistIds, showArtists, folders, showPlaylists],
   );
 
-  // ── Empty state flags ─────────────────────────────────────────────────────
+  // ── Flags ─────────────────────────────────────────────────────────────────
   const hasAnyContent     = entries.length > 0 || playlists.length > 0;
   const currentTabIsEmpty = renderables.length === 0;
 
-  // ── Padding classes by mode ───────────────────────────────────────────────
+  // ── Padding by mode ───────────────────────────────────────────────────────
   const px = compact ? 'px-3' : 'px-5 lg:px-8';
+
+  // ── Shared sub-renderers ──────────────────────────────────────────────────
+  const viewToggle = (
+    <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-lg p-0.5">
+      {(['list', 'grid'] as ViewMode[]).map((v) => (
+        <button key={v} type="button" onClick={() => handleSetView(v)}
+          className={[
+            'flex items-center justify-center rounded transition-colors',
+            compact ? 'w-6 h-5' : 'h-7 px-2 gap-1.5',
+            view === v ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
+          ].join(' ')}
+          aria-label={`${v} view`} aria-pressed={view === v}>
+          {v === 'list'
+            ? <svg viewBox="0 0 24 24" width={compact ? 11 : 14} height={compact ? 11 : 14}
+                fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
+                <path d="M4 6h16M4 12h16M4 18h16"/>
+              </svg>
+            : <svg viewBox="0 0 24 24" width={compact ? 11 : 14} height={compact ? 11 : 14}
+                fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>}
+          {!compact && <span className="hidden lg:inline text-[0.75rem] font-medium capitalize">{v}</span>}
+        </button>
+      ))}
+    </div>
+  );
+
+  const createButton = (
+    <button type="button" onClick={() => setCreateOpen(true)}
+      className={[
+        'flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted hover:bg-swara-card transition-all',
+        compact ? 'w-6 h-6' : 'w-8 h-8',
+      ].join(' ')}
+      aria-label="Create playlist or folder">
+      <svg viewBox="0 0 24 24" width={compact ? 14 : 20} height={compact ? 14 : 20}
+        fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <line x1="12" y1="5" x2="12" y2="19"/>
+        <line x1="5" y1="12" x2="19" y2="12"/>
+      </svg>
+    </button>
+  );
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LAYOUT — Issue 2: identical 4-section hierarchy on both page and panel.
+  //
+  //   1. Header:  [My Library / label]  [view toggle]  [+ create]
+  //   2. Chips:   [Playlists] [Albums] [Artists]
+  //   3. Controls: [Sort dropdown]
+  //   4. Content
+  //
+  // Only visual scale differs (compact booleans on text/spacing).
+  // ─────────────────────────────────────────────────────────────────────────
 
   return (
     <>
-      {/* ── Header ── */}
-      <div className={`${px} ${compact ? 'pt-5 pb-3' : 'pt-6 pb-2'}`}>
+      {/* ── Section 1: Header ── */}
+      <div className={`${px} ${compact ? 'pt-5 pb-2' : 'pt-6 pb-2'}`}>
         <div className="flex items-center justify-between mb-3">
-          <h2 className={[
-            'font-bold text-swara-text tracking-tight font-display',
-            compact ? 'text-[0.78rem] font-semibold text-swara-muted tracking-widest uppercase' : 'text-[1.5rem]',
-          ].join(' ')}>
-            My Library
-          </h2>
+          {compact ? (
+            <h2 className="text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase">
+              My Library
+            </h2>
+          ) : (
+            <h1 className="text-[1.5rem] font-bold text-swara-text tracking-tight font-display">
+              My Library
+            </h1>
+          )}
           <div className="flex items-center gap-1.5">
-            {/* View toggle — always visible in panel, visible when content exists on page */}
-            {(compact || (!compact && hasAnyContent && !currentTabIsEmpty)) && (
-              <div className="flex items-center gap-0.5 bg-swara-card border border-swara-border rounded-lg p-0.5">
-                {(['list', 'grid'] as ViewMode[]).map((v) => (
-                  <button key={v} type="button" onClick={() => handleSetView(v)}
-                    className={[
-                      'flex items-center justify-center rounded transition-colors',
-                      compact ? 'w-6 h-5' : 'h-7 px-2 gap-1.5',
-                      view === v ? 'bg-swara-elevated text-swara-text' : 'text-swara-dim hover:text-swara-muted',
-                    ].join(' ')}
-                    aria-label={`${v} view`} aria-pressed={view === v}>
-                    {v === 'list'
-                      ? <svg viewBox="0 0 24 24" width={compact ? 11 : 14} height={compact ? 11 : 14}
-                          fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" aria-hidden="true">
-                          <path d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                      : <svg viewBox="0 0 24 24" width={compact ? 11 : 14} height={compact ? 11 : 14}
-                          fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                          <rect x="3" y="3" width="7" height="7" rx="1"/>
-                          <rect x="14" y="3" width="7" height="7" rx="1"/>
-                          <rect x="3" y="14" width="7" height="7" rx="1"/>
-                          <rect x="14" y="14" width="7" height="7" rx="1"/>
-                        </svg>}
-                    {!compact && <span className="hidden lg:inline text-[0.75rem] font-medium capitalize">{v}</span>}
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* + Create button */}
-            <button type="button" onClick={() => setCreateOpen(true)}
-              className={[
-                'flex items-center justify-center rounded-full text-swara-dim hover:text-swara-muted hover:bg-swara-card transition-all',
-                compact ? 'w-6 h-6' : 'w-8 h-8',
-              ].join(' ')}
-              aria-label="Create playlist or folder">
-              <svg viewBox="0 0 24 24" width={compact ? 14 : 20} height={compact ? 14 : 20}
-                fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="12" y1="5" x2="12" y2="19"/>
-                <line x1="5" y1="12" x2="19" y2="12"/>
-              </svg>
-            </button>
+            {viewToggle}
+            {createButton}
           </div>
         </div>
 
-        {/* Filter chips */}
+        {/* ── Section 2: Filter chips ── */}
         <div className="flex gap-1.5 overflow-x-auto scrollbar-none pb-0.5">
           {[
             { label: 'Playlists', active: showPlaylists && !showArtists, handler: handleTogglePlaylists },
@@ -312,7 +346,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
             <button key={label} type="button" onClick={handler}
               className={[
                 'flex-shrink-0 rounded-full font-medium border transition-all duration-200',
-                compact ? 'px-3 py-1 text-[0.72rem]' : 'px-4 py-1.5 text-[0.82rem]',
+                compact ? 'px-3 py-0.5 text-[0.7rem]' : 'px-4 py-1.5 text-[0.82rem]',
                 active
                   ? 'bg-swara-accent border-swara-accent text-swara-bg'
                   : 'bg-transparent border-swara-border text-swara-muted hover:text-swara-text',
@@ -325,36 +359,39 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
 
       <div className={`${compact ? 'mx-3' : 'mx-5 lg:mx-8'} h-px bg-swara-border opacity-50 mb-2`} />
 
-      {/* Sort row — page mode only when there's content */}
-      {!compact && hasAnyContent && !currentTabIsEmpty && (
-        <div className={`flex items-center justify-between ${px} mb-4`}>
+      {/* ── Section 3: Controls row (sort) — shown when there's content ── */}
+      {hasAnyContent && !currentTabIsEmpty && (
+        <div className={`flex items-center justify-between ${px} mb-3`}>
           <div className="relative">
             <button type="button" onClick={() => setSortOpen((o) => !o)}
-              className="flex items-center gap-1.5 text-[0.8rem] text-swara-muted hover:text-swara-text transition-colors">
-              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor"
-                strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              className={[
+                'flex items-center gap-1.5 text-swara-muted hover:text-swara-text transition-colors',
+                compact ? 'text-[0.72rem]' : 'text-[0.8rem]',
+              ].join(' ')}>
+              <svg viewBox="0 0 24 24" width={compact ? 12 : 15} height={compact ? 12 : 15}
+                fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 6h18M6 12h12M9 18h6"/>
               </svg>
               {sort}
-              <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
-                strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width={compact ? 10 : 13} height={compact ? 10 : 13}
+                fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
                 <polyline points={sortOpen ? '18 15 12 9 6 15' : '6 9 12 15 18 9'}/>
               </svg>
             </button>
             {sortOpen && (
-              <div className="absolute top-full left-0 mt-2 z-20 bg-swara-elevated border border-swara-border rounded-xl overflow-hidden shadow-lg min-w-[170px]">
+              <div className="absolute top-full left-0 mt-2 z-20 bg-swara-elevated border border-swara-border rounded-xl overflow-hidden shadow-lg min-w-[160px]">
                 {SORTS.map((s) => (
                   <button key={s} type="button" onClick={() => handleSetSort(s)}
                     className={[
-                      'flex items-center gap-2 w-full px-4 py-2.5 text-[0.85rem] text-left hover:bg-swara-card transition-colors',
+                      'flex items-center gap-2 w-full px-4 py-2.5 text-[0.82rem] text-left hover:bg-swara-card transition-colors',
                       sort === s ? 'text-swara-accent' : 'text-swara-text',
                     ].join(' ')}>
                     {sort === s
-                      ? <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+                      ? <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor"
                           strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <polyline points="20 6 9 17 4 12"/>
                         </svg>
-                      : <span className="w-[14px]" />}
+                      : <span className="w-[13px]" />}
                     {s}
                   </button>
                 ))}
@@ -364,7 +401,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
         </div>
       )}
 
-      {/* ── Content ── */}
+      {/* ── Section 4: Content ── */}
       <div className={`${px} ${compact ? 'pb-3' : 'pb-6'}`}>
 
         {/* Global empty */}
@@ -385,7 +422,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
             {!compact && (
               <>
                 <p className="text-[0.78rem] text-swara-dim max-w-[220px] leading-relaxed">
-                  Browse the catalog and add albums or tracks to your library.
+                  Browse the catalog and add albums or create playlists.
                 </p>
                 <button type="button" onClick={() => navigate('/search')}
                   className="mt-1 px-5 py-2 rounded-full bg-swara-accent text-swara-bg text-[0.82rem] font-semibold active:scale-95 transition-transform">
@@ -398,7 +435,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
 
         {hasAnyContent && (
           <>
-            {/* Liked Songs */}
+            {/* Liked Songs — hidden when Artists filter is active */}
             {!showArtists && (
               <LikedSongsRow
                 count={likedCount}
@@ -409,11 +446,11 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
 
             {/* Per-filter empty state */}
             {currentTabIsEmpty && (
-              <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+              <div className="flex flex-col items-center py-8 gap-2 text-center">
                 {showArtists ? (
                   <>
                     {!compact && (
-                      <div className="w-12 h-12 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim">
+                      <div className="w-12 h-12 rounded-2xl bg-swara-card border border-swara-border flex items-center justify-center text-swara-dim mb-1">
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor"
                           strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                           <circle cx="12" cy="8" r="4"/>
@@ -436,7 +473,7 @@ const LibraryContent = ({ mode }: LibraryContentProps) => {
               </div>
             )}
 
-            {/* Content grid / list */}
+            {/* Grid / list */}
             {!currentTabIsEmpty && (
               view === 'grid'
                 ? <RenderableGrid items={renderables} compact={compact} activeRoute={activeRoute} onNavigate={handleNavigate} />

@@ -135,6 +135,10 @@ const AppLayout = () => {
         useLikedStore.getState().syncFromCloud(),
         useUserLibraryStore.getState().syncFromCloud(),
         usePlaylistStore.getState().syncFromCloud(),
+        // Folders sync after playlists (same pattern, independent)
+        import('@/store/useFolderStore').then(({ useFolderStore }) =>
+          useFolderStore.getState().syncFromCloud()
+        ),
       ]);
 
       console.log('[Startup] ══════════════════════════════════════════════');
