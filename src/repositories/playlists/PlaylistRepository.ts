@@ -382,26 +382,43 @@ export const PlaylistRepository = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Build update payload: each entry gets its new 1-based position.
-    // Only include `id` and `position` — playlist_id is not needed for the
-    // onConflict=id upsert and including it can cause RLS mismatch errors
-    // when the policy checks auth.uid() ownership via the playlist join.
-    const updates = orderedEntryIds.map((entryId, idx) => ({
-      id:       entryId,
-      position: idx + 1,
-    }));
+    // Use individual UPDATE calls, NOT upsert.
+    //
+    // WHY UPSERT FAILS UNDER RLS:
+    //   PostgreSQL / Supabase evaluates BOTH INSERT and UPDATE policies when
+    //   executing an upsert, even when every row already exists and only UPDATEs
+    //   occur at the storage layer. Our INSERT policy on playlist_tracks is scoped
+    //   to adding new tracks (not reordering), so the upsert hits a policy
+    //   violation and fails with "new row violates row-level security policy"
+    //   even though no new row is actually being inserted.
+    //
+    // WHY PLAIN UPDATE WORKS:
+    //   A plain UPDATE only consults the UPDATE policy, which correctly permits
+    //   the playlist owner to modify position on their own rows. No INSERT
+    //   policy is evaluated at all.
+    //
+    // PERFORMANCE:
+    //   All updates run in parallel via Promise.all — no serial waiting.
+    //   Network round-trips are the same order as a bulk upsert.
+    const results = await Promise.all(
+      orderedEntryIds.map((entryId, idx) =>
+        supabase
+          .from('playlist_tracks')
+          .update({ position: idx + 1 })
+          .eq('id', entryId)
+      )
+    );
 
-    const { error } = await supabase
-      .from('playlist_tracks')
-      .upsert(updates, { onConflict: 'id' });
-
-    if (error) {
-      console.error('[PlaylistRepo] reorderTracks ERROR:', error.message);
+    const failed = results.filter((r) => r.error);
+    if (failed.length > 0) {
+      console.error('[PlaylistRepo] reorderTracks: some position updates failed:',
+        failed.map((r) => r.error?.message).join(', '));
       return;
     }
 
-    // Bump playlist updated_at so other devices detect the ordering change
-    // during their next syncFromCloud() hydration.
+    // Bump playlist.updated_at so:
+    //   1. Other devices re-fetch trackIds in the new order on next syncFromCloud
+    //   2. Realtime broadcasts a playlists UPDATE as a secondary delivery signal
     const { error: tsErr } = await supabase
       .from('playlists')
       .update({ updated_at: new Date().toISOString() })
