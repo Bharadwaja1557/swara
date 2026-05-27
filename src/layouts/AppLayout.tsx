@@ -146,6 +146,45 @@ const AppLayout = () => {
     })();
   }, [isAuth, loaded]);
 
+  // ── Playlist re-sync on window focus / tab visibility ──────────────────────
+  // This is the cross-device reorder sync fix.
+  //
+  // Why cover sync appears instant but reorder does not:
+  //   Cover upload updates a single `playlists` row → syncFromCloud picks it up.
+  //   Reorder updates many `playlist_tracks.position` rows → syncFromCloud
+  //   only re-runs on app startup (syncDoneRef gate). Device B never sees the
+  //   new order until the user reopens the app or returns to the tab.
+  //
+  // Fix: re-sync playlists (and folders) whenever:
+  //   a) the window regains focus     — user switches from another device/browser
+  //   b) the tab becomes visible again — user switches back from another tab
+  //
+  // Both fire syncFromCloud which calls getAllPlaylists() with the Q2 batch
+  // track-order fetch, so track ordering from Supabase replaces local state.
+  // The `isSyncing` guard in the store prevents concurrent duplicate calls.
+  useEffect(() => {
+    if (!isAuth) return;
+
+    const syncPlaylists = () => {
+      // Only re-sync when the document is actually visible to avoid
+      // unnecessary network calls on background tabs.
+      if (document.visibilityState !== 'visible') return;
+      console.log('[Sync] Focus/visibility → re-syncing playlists + folders');
+      usePlaylistStore.getState().syncFromCloud();
+      import('@/store/useFolderStore').then(({ useFolderStore }) =>
+        useFolderStore.getState().syncFromCloud()
+      ).catch(() => {});
+    };
+
+    window.addEventListener('focus', syncPlaylists);
+    document.addEventListener('visibilitychange', syncPlaylists);
+
+    return () => {
+      window.removeEventListener('focus', syncPlaylists);
+      document.removeEventListener('visibilitychange', syncPlaylists);
+    };
+  }, [isAuth]);
+
   // ── Render ────────────────────────────────────────────────────────────────
   if (!initialized) return <AuthSplash />;
   if (!isAuth)      return <LoginModal />;

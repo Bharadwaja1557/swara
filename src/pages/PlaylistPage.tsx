@@ -138,13 +138,25 @@ const PlaylistPage = () => {
     .map((e) => ({ entry: e, track: trackMap.get(e.trackId) }))
     .filter((x): x is { entry: PlaylistTrackEntry; track: Track } => x.track !== undefined);
 
+  // Stable digest of the playlist's trackIds array from the store.
+  // Used as a useEffect dep so entries re-fetch only when the server-side
+  // ordering actually changes (e.g. another device reordered via syncFromCloud),
+  // NOT on every optimistic local drag (which updates entries directly).
+  const trackIdsDigest = playlist?.trackIds.join(',') ?? '';
+
+  // Load full track list from Supabase.
+  // Re-runs when:
+  //   • id changes (user navigated to a different playlist)
+  //   • trackIdsDigest changes (syncFromCloud brought a new ordering from cloud)
+  // Does NOT re-run on local optimistic drag (setEntries is called directly).
   useEffect(() => {
     if (!id) return;
     setLoading(true);
     loadPlaylistTracks(id)
       .then((fetched) => { setEntries(fetched); })
       .finally(() => setLoading(false));
-  }, [id, loadPlaylistTracks]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id, loadPlaylistTracks, trackIdsDigest]);
 
   // dnd-kit sensors — pointer for desktop, touch for mobile
   const sensors = useSensors(
