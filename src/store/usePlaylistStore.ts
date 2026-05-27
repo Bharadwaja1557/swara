@@ -391,7 +391,14 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   // ── Cloud sync ────────────────────────────────────────────────────────────
 
   syncFromCloud: async () => {
-    if (get().isSyncing) return;
+    if (get().isSyncing) {
+      // A sync is already in progress. Rather than dropping this request,
+      // schedule a follow-up — handles the case where realtime fires
+      // during startup sync and the signal would otherwise be silently lost.
+      console.log('[Playlists] syncFromCloud: already syncing, scheduling follow-up');
+      setTimeout(() => { get().syncFromCloud(); }, 500);
+      return;
+    }
     set({ isSyncing: true });
 
     console.log('[Playlists] ─────────────────────────────────────────');

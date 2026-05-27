@@ -24,6 +24,7 @@ import { useAuthStore }         from '@/store/useAuthStore';
 import { useProfileStore }      from '@/store/useProfileStore';
 import { useIsDesktop }         from '@/hooks/useIsDesktop';
 import { restorePlaybackState } from '@/store/playerStore';
+import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtimeSync';
 import { BottomNav }            from '@/components/nav/BottomNav';
 import MiniPlayer               from '@/components/player/MiniPlayer';
 import FullscreenPlayer         from '@/components/player/FullscreenPlayer';
@@ -141,12 +142,28 @@ const AppLayout = () => {
         ),
       ]);
 
+      // ── Step 8: Start Supabase Realtime sync ──────────────────────────
+      // Must start AFTER initial sync so we don't double-process startup changes.
+      // Realtime delivers push notifications for playlist_tracks and playlists
+      // changes — enables sub-second cross-device reorder propagation.
+      const userId = useAuthStore.getState().user?.id;
+      if (userId) {
+        startRealtimeSync(userId);
+      }
+
       console.log('[Startup] ══════════════════════════════════════════════');
       console.log('[Startup] Startup sequence complete ✓');
     })();
   }, [isAuth, loaded]);
 
-  // ── Playlist re-sync on window focus / tab visibility ──────────────────────
+  // ── Stop realtime sync on logout ─────────────────────────────────────────
+  useEffect(() => {
+    if (!isAuth) {
+      stopRealtimeSync();
+      // Reset syncDoneRef so re-login triggers full startup sequence again
+      syncDoneRef.current = false;
+    }
+  }, [isAuth]);
   // This is the cross-device reorder sync fix.
   //
   // Why cover sync appears instant but reorder does not:
