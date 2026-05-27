@@ -1,48 +1,99 @@
 /**
  * src/lib/image/resizeToWebp.ts
  *
- * Resize an image file to 512×512 and convert to WebP.
- *
- * WHY WEBP:
- *   Smaller files (~30–50% vs JPEG), predictable format, good browser support,
- *   faster loading, better CDN caching.
- *
- * WHY 512×512:
- *   Playlist covers render at max ~280px on desktop hero — 512px gives 2x
- *   resolution on retina displays without bloating the upload.
+ * Resize a user-selected image to 512×512 and convert to WebP.
  *
  * PIPELINE:
- *   File → <img> element → Canvas (512×512, object-cover crop) → Blob (webp, q=0.82)
+ *   File → MIME validation → objectURL → <img> → Canvas (512×512 crop) → Blob (webp q=0.82)
  *
- * OBJECT-COVER CROP:
- *   Centres and crops the source image to fill 512×512 regardless of aspect
- *   ratio. Matches how the UI renders covers (object-cover).
+ * KEY FIXES vs previous version:
+ *   1. objectURL is NOT revoked inside onload — it must stay alive until
+ *      drawImage() completes. Revoke happens after canvas.toBlob() resolves.
+ *   2. img.crossOrigin = 'anonymous' prevents Safari tainted-canvas errors.
+ *   3. MIME validation rejects unsupported types before attempting decode.
+ *   4. HEIC (iPhone) detected early with a clear user-facing error.
  *
- * FALLBACK:
- *   If the browser doesn't support webp output (canvasBlob returns null),
- *   falls back to jpeg at the same quality.
+ * SUPPORTED INPUT FORMATS:
+ *   jpg, jpeg, png, webp, gif, avif
+ *
+ * REJECTED INPUT FORMATS (with user-friendly messages):
+ *   heic, heif  — unreliable canvas decode on most browsers
+ *   svg         — not raster, decode behavior undefined
+ *   bmp, tiff   — rarely used, skip for now
  */
 
 const TARGET_SIZE  = 512;
 const WEBP_QUALITY = 0.82;
 
+// ── MIME gating ───────────────────────────────────────────────────────────────
+
+const SUPPORTED_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/avif',
+]);
+
+const HEIC_TYPES = new Set([
+  'image/heic',
+  'image/heif',
+]);
+
 /**
- * Load a File/Blob into an HTMLImageElement.
- * Returns a promise that resolves with the loaded image.
+ * Validate a file's MIME type before attempting resize.
+ * Throws a human-readable error string (not an Error object) so callers
+ * can display it directly in a toast / UI message.
  */
-function loadImage(file: File | Blob): Promise<HTMLImageElement> {
+export function validateImageMime(file: File): void {
+  const type = file.type.toLowerCase();
+
+  if (HEIC_TYPES.has(type) || file.name.toLowerCase().match(/\.(heic|heif)$/)) {
+    throw 'HEIC images from iPhone are not supported yet. Please use JPG or PNG.';
+  }
+
+  if (type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg')) {
+    throw 'SVG files cannot be used as playlist covers. Please upload a JPG or PNG.';
+  }
+
+  if (!type.startsWith('image/') || !SUPPORTED_TYPES.has(type)) {
+    throw `Unsupported format "${type || file.name.split('.').pop()}". Please use JPG, PNG, or WebP.`;
+  }
+}
+
+// ── Image loading ─────────────────────────────────────────────────────────────
+
+/**
+ * Load a File into an HTMLImageElement via objectURL.
+ *
+ * IMPORTANT: The objectURL is NOT revoked here — it must stay alive
+ * until drawImage() has consumed the decoded pixels. The caller is
+ * responsible for calling URL.revokeObjectURL(url) after canvas work.
+ */
+function loadImageFromFile(file: File): Promise<{ img: HTMLImageElement; url: string }> {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
-    const img  = new Image();
-    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Failed to load image')); };
+    const img = new Image();
+
+    // crossOrigin prevents Safari from marking the canvas as tainted,
+    // which would make toBlob() return null with no error.
+    img.crossOrigin = 'anonymous';
+
+    img.onload  = () => resolve({ img, url }); // do NOT revoke here
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject('Could not decode the image. Please try a different file.');
+    };
+
     img.src = url;
   });
 }
 
+// ── Canvas crop ───────────────────────────────────────────────────────────────
+
 /**
- * Crop + resize an image to TARGET_SIZE × TARGET_SIZE using object-cover logic.
- * Returns a canvas with the result drawn.
+ * Draw the image onto a TARGET_SIZE × TARGET_SIZE canvas using object-cover logic
+ * (scale so the shorter side fills the canvas, then centre-crop).
  */
 function cropToSquareCanvas(img: HTMLImageElement): HTMLCanvasElement {
   const canvas  = document.createElement('canvas');
@@ -50,58 +101,63 @@ function cropToSquareCanvas(img: HTMLImageElement): HTMLCanvasElement {
   canvas.height = TARGET_SIZE;
   const ctx = canvas.getContext('2d')!;
 
-  // Object-cover: scale so the shorter dimension fills TARGET_SIZE, then centre
-  const scale  = Math.max(TARGET_SIZE / img.naturalWidth, TARGET_SIZE / img.naturalHeight);
-  const sw     = img.naturalWidth  * scale;
-  const sh     = img.naturalHeight * scale;
-  const sx     = (TARGET_SIZE - sw) / 2;
-  const sy     = (TARGET_SIZE - sh) / 2;
+  const scale = Math.max(TARGET_SIZE / img.naturalWidth, TARGET_SIZE / img.naturalHeight);
+  const sw    = img.naturalWidth  * scale;
+  const sh    = img.naturalHeight * scale;
+  const sx    = (TARGET_SIZE - sw) / 2;
+  const sy    = (TARGET_SIZE - sh) / 2;
 
   ctx.drawImage(img, sx, sy, sw, sh);
   return canvas;
 }
 
-/**
- * Convert a canvas to a Blob.
- * Tries webp first; falls back to jpeg if unsupported.
- */
+// ── Blob export ───────────────────────────────────────────────────────────────
+
 function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
-    // Try webp
     canvas.toBlob((blob) => {
       if (blob) return resolve(blob);
-      // Fallback to jpeg
+      // WebP not supported (very rare) — fall back to JPEG
       canvas.toBlob((fallback) => {
         if (fallback) return resolve(fallback);
-        reject(new Error('Canvas.toBlob returned null'));
+        reject('Canvas could not produce an image blob. Please try again.');
       }, 'image/jpeg', WEBP_QUALITY);
     }, 'image/webp', WEBP_QUALITY);
   });
 }
 
-/**
- * Result of a resize operation.
- */
+// ── Public API ────────────────────────────────────────────────────────────────
+
 export interface ResizeResult {
-  blob:        Blob;
-  /** MIME type of the output ('image/webp' or 'image/jpeg'). */
-  mimeType:    string;
-  /** Suggested file extension. */
-  extension:   'webp' | 'jpg';
-  /** Size in bytes. */
-  sizeBytes:   number;
+  blob:       Blob;
+  mimeType:   string;
+  extension:  'webp' | 'jpg';
+  sizeBytes:  number;
 }
 
 /**
- * Resize a user-selected image to 512×512 WebP.
- * Input: any image File the user selected via <input type="file">.
- * Output: a ResizeResult ready for upload to Supabase Storage.
+ * Resize a user-selected image file to 512×512 WebP.
  *
- * @throws if the image cannot be decoded or the canvas API is unavailable.
+ * Call validateImageMime(file) before this if you want early MIME rejection
+ * with a user-facing message, or call this directly (it validates internally).
+ *
+ * @throws string  — human-readable error suitable for toast display.
  */
 export async function resizeToWebp(file: File): Promise<ResizeResult> {
-  const img    = await loadImage(file);
-  const canvas = cropToSquareCanvas(img);
+  // Validate MIME before any async work
+  validateImageMime(file);
+
+  // Load image — objectURL kept alive until after drawImage
+  const { img, url } = await loadImageFromFile(file);
+
+  let canvas: HTMLCanvasElement;
+  try {
+    canvas = cropToSquareCanvas(img);
+  } finally {
+    // Safe to revoke now — drawImage() has consumed the pixels
+    URL.revokeObjectURL(url);
+  }
+
   const blob   = await canvasToBlob(canvas);
   const isWebp = blob.type === 'image/webp';
 

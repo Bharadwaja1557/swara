@@ -104,12 +104,14 @@ export const PlaylistRepository = {
 
     const playlistIds = stubs.map((p) => p.id);
 
-    // Q2: all track entries for these playlists in one shot
+    // Q2: all track entries for these playlists in one shot.
+    // Order by playlist_id first (for stable grouping), then position (for correct order within each playlist).
     const { data: trackRows, error: trackErr } = await supabase
       .from('playlist_tracks')
       .select('playlist_id, track_id')
       .in('playlist_id', playlistIds)
-      .order('position', { ascending: true });
+      .order('playlist_id', { ascending: true })
+      .order('position',    { ascending: true });
 
     if (trackErr) {
       // Log but don't fail — return stubs with empty trackIds
@@ -380,18 +382,32 @@ export const PlaylistRepository = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Build upsert payload: each entry gets its new 1-based position
+    // Build update payload: each entry gets its new 1-based position.
+    // Only include `id` and `position` — playlist_id is not needed for the
+    // onConflict=id upsert and including it can cause RLS mismatch errors
+    // when the policy checks auth.uid() ownership via the playlist join.
     const updates = orderedEntryIds.map((entryId, idx) => ({
-      id:          entryId,
-      playlist_id: playlistId,
-      position:    idx + 1,
+      id:       entryId,
+      position: idx + 1,
     }));
 
     const { error } = await supabase
       .from('playlist_tracks')
       .upsert(updates, { onConflict: 'id' });
 
-    if (error) console.error('[PlaylistRepo] reorderTracks ERROR:', error.message);
+    if (error) {
+      console.error('[PlaylistRepo] reorderTracks ERROR:', error.message);
+      return;
+    }
+
+    // Bump playlist updated_at so other devices detect the ordering change
+    // during their next syncFromCloud() hydration.
+    const { error: tsErr } = await supabase
+      .from('playlists')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', playlistId);
+
+    if (tsErr) console.error('[PlaylistRepo] reorderTracks bump updated_at ERROR:', tsErr.message);
     else       console.log('[PlaylistRepo] reorderTracks SUCCESS');
   },
 };

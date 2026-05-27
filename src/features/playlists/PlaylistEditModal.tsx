@@ -26,7 +26,7 @@ import { useState, useEffect, useRef } from 'react';
 import { usePlaylistStore } from '@/store/usePlaylistStore';
 import { useAuthStore }     from '@/store/useAuthStore';
 import { supabase }         from '@/lib/supabase';
-import { resizeToWebp }     from '@/lib/image/resizeToWebp';
+import { resizeToWebp, validateImageMime } from '@/lib/image/resizeToWebp';
 import BottomSheet          from '@/components/ui/BottomSheet';
 import { PLAYLIST_COVERS }  from './coverRegistry';
 import type { Playlist }    from '@/store/usePlaylistStore';
@@ -89,7 +89,19 @@ const PlaylistEditModal = ({
     const file = e.target.files?.[0];
     if (!file || !userId) return;
 
-    // Show local preview immediately (optimistic)
+    // Reset file input immediately so the same file can be re-selected after an error
+    if (fileRef.current) fileRef.current.value = '';
+
+    // ── MIME validation BEFORE showing preview ────────────────────────────
+    // validateImageMime throws a human-readable string on unsupported formats.
+    try {
+      validateImageMime(file);
+    } catch (msg) {
+      setUploadError(typeof msg === 'string' ? msg : 'Unsupported file type.');
+      return;
+    }
+
+    // Show local preview optimistically — only AFTER format is confirmed valid
     const localUrl = URL.createObjectURL(file);
     setPreviewUrl(localUrl);
     setUploading(true);
@@ -103,29 +115,31 @@ const PlaylistEditModal = ({
         .from(COVER_BUCKET)
         .upload(storagePath, blob, {
           contentType:  mimeType,
-          upsert:       true,   // overwrite previous cover for this playlist
+          upsert:       true,
           cacheControl: '3600',
         });
 
-      if (uploadErr) throw uploadErr;
+      if (uploadErr) throw uploadErr.message;
 
       const { data } = supabase.storage.from(COVER_BUCKET).getPublicUrl(storagePath);
       const publicUrl = data.publicUrl;
 
-      // Persist to store + DB; clear preset since custom cover takes priority
+      // Persist to store + DB; clear preset — custom cover takes priority 1
       updateCover(playlist.id, publicUrl);
       updateCoverId(playlist.id, null);
+      // Preview served its purpose — real URL is now in playlist.coverImageUrl
       URL.revokeObjectURL(localUrl);
       setPreviewUrl(null);
     } catch (err) {
       console.error('[PlaylistEdit] cover upload failed:', err);
-      setUploadError('Upload failed — please try again');
+      const msg = typeof err === 'string' ? err : 'Upload failed — please try again.';
+      setUploadError(msg);
+      // Clean up preview — do NOT leave a broken object URL in the UI
       URL.revokeObjectURL(localUrl);
       setPreviewUrl(null);
+      // Important: do NOT call updateCover here — previous cover stays intact
     } finally {
       setUploading(false);
-      // Reset file input so the same file can be re-selected
-      if (fileRef.current) fileRef.current.value = '';
     }
   };
 
