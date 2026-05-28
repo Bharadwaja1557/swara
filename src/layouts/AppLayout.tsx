@@ -8,11 +8,12 @@
  *   2b. fetchProfile()      — fetch user profile (parallel with 2a)
  *   3. loadAlbumTracks()    — load ALL album track lists in parallel
  *   4. restorePlayback()    — resolve saved queue IDs against trackMap
- *   5. liked.syncFromCloud()    — fetch liked IDs from Supabase
- *   6. library.syncFromCloud()  — fetch user library from Supabase
- *   7. playlists.syncFromCloud()— fetch playlist stubs from Supabase
+ *   5. liked.syncFromCloud()           — fetch liked IDs from Supabase
+ *   6. library.syncFromCloud()         — fetch user library from Supabase
+ *   7. playlists.syncFromCloud()       — fetch playlist stubs from Supabase
+ *   8. favoriteArtists.syncFromCloud() — fetch followed artists from Supabase
  *
- * Steps 5, 6, 7 run in parallel (no inter-dependency).
+ * Steps 5, 6, 7, 8 run in parallel (no inter-dependency).
  */
 import { Outlet }      from 'react-router-dom';
 import { useEffect, useRef } from 'react';
@@ -128,10 +129,10 @@ const AppLayout = () => {
       console.log('[Startup] Restoring playback session...');
       restorePlaybackState(trackMap);
 
-      // ── Steps 5 + 6 + 7: sync liked, library, playlists in parallel ──────
-      // All three are independent — none depends on the others.
+      // ── Steps 5 + 6 + 7 + 8: sync liked, library, playlists, followed artists ──
+      // All four are independent — none depends on the others.
       // All use cloud-authoritative replace strategy.
-      console.log('[Startup] Syncing liked songs, user library, and playlists from cloud...');
+      console.log('[Startup] Syncing liked songs, user library, playlists, and followed artists from cloud...');
       await Promise.all([
         useLikedStore.getState().syncFromCloud(),
         useUserLibraryStore.getState().syncFromCloud(),
@@ -139,6 +140,10 @@ const AppLayout = () => {
         // Folders sync after playlists (same pattern, independent)
         import('@/store/useFolderStore').then(({ useFolderStore }) =>
           useFolderStore.getState().syncFromCloud()
+        ),
+        // Followed artists — was localStorage-only; now synced to Supabase
+        import('@/store/useFavoriteArtistsStore').then(({ useFavoriteArtistsStore }) =>
+          useFavoriteArtistsStore.getState().syncFromCloud()
         ),
       ]);
 

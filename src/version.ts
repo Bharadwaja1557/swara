@@ -7,11 +7,14 @@
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *     e.g. search UX fixes, toast system, stats section, queue UX polish
  *
- * CURRENT: 7.8
+ * CURRENT: 7.9
  *   7.x = UI/UX refinement passes
- *   .8  = Compact menu artwork, logout cleanup, recently played tile grid,
- *         artist page hero + album grid + similar artists section
+ *   .9  = Recently played layout fix (1/2/3 col, split interaction),
+ *         TrackMenuSheet header breathing room,
+ *         AlbumPage "More from Composer" section,
+ *         ArtistPage similar artists 3→5 on desktop,
+ *         Favorite artists full cloud sync (Supabase)
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '7.8';
+export const APP_VERSION = '7.9';

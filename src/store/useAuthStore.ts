@@ -76,6 +76,12 @@ async function clearUserState(): Promise<void> {
     clearSession();
   } catch (e) { console.warn('[Auth] clearUserState: playerStore clearSession failed', e); }
 
+  try {
+    // Followed artists: clear Zustand + swara:favorite_artists_v1 localStorage
+    const { useFavoriteArtistsStore } = await import('@/store/useFavoriteArtistsStore');
+    useFavoriteArtistsStore.getState().reset();
+  } catch (e) { console.warn('[Auth] clearUserState: favoriteArtistsStore reset failed', e); }
+
   console.log('[Auth] User state cleared ✓');
 }
 

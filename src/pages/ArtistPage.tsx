@@ -37,7 +37,8 @@ import type { Track, Album, Artist } from '@/types/music';
 
 const INITIAL_SONGS  = 5;
 const INITIAL_ALBUMS = 9;   // 3 col × 3 row initial view on mobile
-const SIMILAR_COUNT  = 3;
+const SIMILAR_MOBILE  = 3;
+const SIMILAR_DESKTOP = 5;
 
 const PH      = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♫</text></svg>';
 const PH_ART  = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><circle cx="50" cy="38" r="20" fill="%233E3D3A"/><ellipse cx="50" cy="80" rx="30" ry="18" fill="%233E3D3A"/></svg>';
@@ -49,7 +50,7 @@ const PH_ART  = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"
 // This correlates well with same-language/industry/era without needing
 // explicit genre or language metadata — artists on the same film OSTs or
 // label compilations are almost always from the same scene.
-function getSimilarArtists(target: Artist, allArtists: Artist[], count = SIMILAR_COUNT): Artist[] {
+function getSimilarArtists(target: Artist, allArtists: Artist[], count = SIMILAR_DESKTOP): Artist[] {
   const targetAlbumSet = new Set(target.albumIds);
   return allArtists
     .filter((a) => a.id !== target.id)
@@ -157,7 +158,9 @@ const ArtistPage = () => {
     .filter(Boolean)
     .sort((a, b) => (b!.year - a!.year)) as Album[];
 
-  const similarArtists = getSimilarArtists(artist, artists);
+  const similarArtists = getSimilarArtists(artist, artists, SIMILAR_DESKTOP);
+  const mobileSimilar  = similarArtists.slice(0, SIMILAR_MOBILE);
+  const desktopSimilar = similarArtists;
 
   const visibleSongs  = showAllSongs  ? artistTracks                         : artistTracks.slice(0, INITIAL_SONGS);
   const visibleAlbums = showAllAlbums ? composerAlbums                       : composerAlbums.slice(0, INITIAL_ALBUMS);
@@ -309,9 +312,21 @@ const ArtistPage = () => {
             <p className="text-[0.68rem] lg:text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase mb-5 px-1">
               Similar Artists
             </p>
-            {/* 3-column fixed grid, 1 row */}
-            <div className="grid grid-cols-3 gap-4 lg:gap-6 max-w-sm lg:max-w-md">
-              {similarArtists.map((sim) => (
+
+            {/* Mobile: 3 columns, 1 row */}
+            <div className="grid grid-cols-3 gap-4 lg:hidden max-w-xs">
+              {mobileSimilar.map((sim) => (
+                <SimilarArtistCard
+                  key={sim.id}
+                  artist={sim}
+                  onClick={() => navigate(`/artist/${sim.id}`)}
+                />
+              ))}
+            </div>
+
+            {/* Desktop: 5 columns, 1 row */}
+            <div className="hidden lg:grid lg:grid-cols-5 gap-5 max-w-xl">
+              {desktopSimilar.map((sim) => (
                 <SimilarArtistCard
                   key={sim.id}
                   artist={sim}

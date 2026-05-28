@@ -203,8 +203,10 @@ export const TrackMenuSheet = ({
   return (
     <>
       <BottomSheet isOpen={isOpen} onClose={onClose}>
-        {/* Track header — compact artwork + title/album */}
-        <div className="px-5 pt-1 pb-3 border-b border-swara-border flex items-center gap-3">
+        {/* Track header — compact artwork + title/album.
+            pt-4: subtle breathing room above the row — keeps the header from
+            feeling cramped against the sheet drag handle. */}
+        <div className="px-5 pt-4 pb-3 border-b border-swara-border flex items-center gap-3">
           {/* Compact cover — matches text block height, no visual weight */}
           <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-swara-elevated">
             <img

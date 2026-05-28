@@ -10,6 +10,31 @@ import ShuffleIcon             from '@/components/ui/ShuffleIcon';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
+// ── More from Composer card ───────────────────────────────────────────────────
+// Reuses the AlbumGridCard aesthetic already established on ArtistPage.
+const ComposerAlbumCard = ({
+  coverUrl, title, year, onClick,
+}: { coverUrl: string; title: string; year: number; onClick: () => void }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="flex flex-col text-left active:scale-[0.96] group"
+    aria-label={`Open ${title}`}
+  >
+    <div className="w-full rounded-xl overflow-hidden bg-swara-elevated aspect-square mb-2">
+      <img
+        src={coverUrl || PH}
+        alt={title}
+        className="w-full h-full object-cover group-hover:opacity-80"
+        loading="lazy"
+        onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
+      />
+    </div>
+    <p className="text-[0.76rem] font-medium text-swara-text truncate w-full leading-tight">{title}</p>
+    <p className="text-[0.68rem] text-swara-muted truncate w-full mt-0.5">{year}</p>
+  </button>
+);
+
 // ─── AlbumPage ────────────────────────────────────────────────────────────────
 const AlbumPage = () => {
   const { id }    = useParams<{ id: string }>();
@@ -86,6 +111,26 @@ const AlbumPage = () => {
       <button type="button" onClick={() => navigate(-1)} className="text-swara-accent text-sm">Go back</button>
     </div>
   );
+
+  // ── More from Composer ───────────────────────────────────────────────────
+  // Heuristic: same composer, exclude current album, released within ±2 years.
+  // The ±2 year window surfaces albums from the same creative era (e.g. the same
+  // film/TV cycle or release run) rather than the full catalog.
+  // Sorted by year proximity ascending (closest year first); ties broken newest-first.
+  // Mobile shows 3 max, desktop shows 5 max — sliced per breakpoint in the render.
+  const moreAlbums = album
+    ? albums
+        .filter((a) =>
+          a.id !== album.id &&
+          a.composer === album.composer &&
+          Math.abs(a.year - album.year) <= 2,
+        )
+        .sort((a, b) => {
+          const distA = Math.abs(a.year - album.year);
+          const distB = Math.abs(b.year - album.year);
+          return distA - distB || b.year - a.year;
+        })
+    : [];
 
   // ── Main render ─────────────────────────────────────────────────────────────
 
@@ -190,6 +235,42 @@ const AlbumPage = () => {
           </ul>
         )}
       </div>
+
+      {/* ── More from Composer ── */}
+      {moreAlbums.length > 0 && (
+        <div className="px-4 lg:px-8 pb-10">
+          <div className="h-px bg-swara-border opacity-50 mb-5" />
+          <p className="text-[0.68rem] lg:text-[0.72rem] font-semibold text-swara-muted tracking-widest uppercase mb-4">
+            More from {album.composer}
+          </p>
+
+          {/* Mobile: 3 cols max */}
+          <div className="grid grid-cols-3 gap-3 lg:hidden">
+            {moreAlbums.slice(0, 3).map((a) => (
+              <ComposerAlbumCard
+                key={a.id}
+                coverUrl={a.coverUrl}
+                title={a.title}
+                year={a.year}
+                onClick={() => navigate(`/album/${a.id}`)}
+              />
+            ))}
+          </div>
+
+          {/* Desktop: 5 cols max */}
+          <div className="hidden lg:grid lg:grid-cols-5 gap-4">
+            {moreAlbums.slice(0, 5).map((a) => (
+              <ComposerAlbumCard
+                key={a.id}
+                coverUrl={a.coverUrl}
+                title={a.title}
+                year={a.year}
+                onClick={() => navigate(`/album/${a.id}`)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 };
