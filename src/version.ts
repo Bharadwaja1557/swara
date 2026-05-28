@@ -15,13 +15,13 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 8.1
+ * CURRENT: 8.2
  *   8.x = Search + Playlist architecture
- *   .1  = Root-cause fix: full Playlist objects from searchPlaylists,
- *         getPlaylist enriched with creator/ownership fields,
- *         loadPlaylistTracks upserts missing playlists into store,
- *         upsertPlaylist store method, realtime covers saved playlists
+ *   .2  = Profile resolution audit: centralized resolveCreatorUsernames(),
+ *         profiles RLS fixed (SELECT open to all authenticated users),
+ *         auth trigger for auto profile creation, backfill migration,
+ *         eliminated 'unknown' / UUID-fragment fallbacks everywhere
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '8.1';
+export const APP_VERSION = '8.2';

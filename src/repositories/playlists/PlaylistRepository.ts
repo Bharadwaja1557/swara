@@ -16,6 +16,7 @@
  *   Every method logs entry, key params, and success/error outcome.
  */
 import { supabase } from '@/lib/supabase';
+import { ProfileRepository } from '@/repositories/profile/ProfileRepository';
 import type { Playlist, PlaylistTrackEntry } from '@/store/usePlaylistStore';
 
 // Row shapes returned from Supabase ─────────────────────────────────────────
@@ -147,20 +148,16 @@ export const PlaylistRepository = {
       trackMap.set(row.playlist_id, list);
     }
 
-    // ── Q3: batch-resolve creator usernames ───────────────────────────────
+    // ── Q3: batch-resolve creator usernames (single canonical path) ──────
     const uniqueUserIds = [...new Set(allRows.map((r) => r.user_id))];
-    const { data: profileRows } = await supabase
-      .from('profiles')
-      .select('id, username')
-      .in('id', uniqueUserIds);
-    const profileMap = new Map((profileRows ?? []).map((p: { id: string; username: string }) => [p.id, p.username]));
+    const profileMap = await ProfileRepository.resolveCreatorUsernames(uniqueUserIds);
 
     // ── Merge ─────────────────────────────────────────────────────────────
     const playlists = allRows.map((r) => ({
       ...rowToPlaylist(r),
       trackIds:        trackMap.get(r.id) ?? [],
       creatorUserId:   r.user_id,
-      creatorUsername: profileMap.get(r.user_id) ?? 'unknown',
+      creatorUsername: profileMap.get(r.user_id)!,
       isOwned:         r.user_id === user.id,
       isSaved:         !!(r.user_id !== user.id && savedIdSet.has(r.id)),
     }));
@@ -207,14 +204,14 @@ export const PlaylistRepository = {
     const row     = playlistRes.data as PlaylistRow;
     const entries = (tracksRes.data ?? []).map(rowToTrackEntry);
 
-    // Batch 2: creator profile + saved status (need row.user_id from batch 1)
-    const [profileRes, savedRes] = await Promise.all([
-      supabase.from('profiles').select('username').eq('id', row.user_id).single(),
+    // Batch 2: creator username + saved status (run in parallel)
+    const [profileMap, savedRes] = await Promise.all([
+      // Centralized resolver — handles RLS, missing rows, and self-heal
+      ProfileRepository.resolveCreatorUsernames([row.user_id]),
       supabase.from('playlist_saves').select('playlist_id').eq('playlist_id', playlistId).limit(1),
     ]);
 
-    const creatorUsername = (profileRes.data as { username: string } | null)?.username
-      ?? row.user_id.slice(0, 8);
+    const creatorUsername = profileMap.get(row.user_id)!;
     const isSaved = !!(savedRes.data && savedRes.data.length > 0 && row.user_id !== user.id);
 
     const playlist: Playlist = {
@@ -560,8 +557,8 @@ export const PlaylistRepository = {
     const playlistIds   = rows.map((r) => r.id);
     const uniqueUserIds = [...new Set(rows.map((r) => r.user_id))];
 
-    // Q2–Q4: trackIds + creator profiles + saved status (all in parallel)
-    const [trackRows, profileRows, savedRows] = await Promise.all([
+    // Q2 + Q3 + Q4: trackIds, creator usernames, saved status — all parallel
+    const [trackRows, profileMap, savedRows] = await Promise.all([
       // Q2: batch trackIds for artwork collage
       supabase
         .from('playlist_tracks')
@@ -569,11 +566,8 @@ export const PlaylistRepository = {
         .in('playlist_id', playlistIds)
         .order('playlist_id', { ascending: true })
         .order('position',    { ascending: true }),
-      // Q3: batch creator usernames
-      supabase
-        .from('profiles')
-        .select('id, username')
-        .in('id', uniqueUserIds),
+      // Q3: centralized username resolver (handles RLS, missing rows, self-heal)
+      ProfileRepository.resolveCreatorUsernames(uniqueUserIds),
       // Q4: which of these has the current user saved?
       supabase
         .from('playlist_saves')
@@ -589,11 +583,6 @@ export const PlaylistRepository = {
       trackMap.set(tr.playlist_id, list);
     }
 
-    // Build profileMap: userId → username
-    const profileMap = new Map(
-      ((profileRows.data ?? []) as { id: string; username: string }[]).map((p) => [p.id, p.username])
-    );
-
     const savedIdSet = new Set(
       ((savedRows.data ?? []) as { playlist_id: string }[]).map((r) => r.playlist_id)
     );
@@ -602,8 +591,7 @@ export const PlaylistRepository = {
       ...rowToPlaylist(r),
       trackIds:        trackMap.get(r.id) ?? [],
       creatorUserId:   r.user_id,
-      // Fall back to first 8 chars of UUID only if profile genuinely missing from DB
-      creatorUsername: profileMap.get(r.user_id) ?? r.user_id.slice(0, 8),
+      creatorUsername: profileMap.get(r.user_id)!,
       isOwned:         r.user_id === user.id,
       isSaved:         !!(r.user_id !== user.id && savedIdSet.has(r.id)),
     }));
