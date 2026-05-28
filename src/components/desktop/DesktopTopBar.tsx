@@ -12,7 +12,6 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDesktopSearchStore } from '@/store/useDesktopSearchStore';
-import { useSearchHistoryStore } from '@/store/useSearchHistoryStore';
 
 // ─── DesktopTopBar ────────────────────────────────────────────────────────────
 const DesktopTopBar = () => {
@@ -46,14 +45,11 @@ const DesktopTopBar = () => {
   }, [isSearchPage, navigate]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && query.trim()) {
-      useSearchHistoryStore.getState().push(query.trim());
-    }
     if (e.key === 'Escape') {
       clearDesktopQuery();
       inputRef.current?.blur();
     }
-  }, [query, clearDesktopQuery]);
+  }, [clearDesktopQuery]);
 
   return (
     <header

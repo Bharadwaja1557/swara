@@ -30,6 +30,7 @@ interface PlaylistRow {
   track_count: number;
   created_at:  string;
   updated_at:  string;
+  user_id:     string;          // creator UUID — used for ownership checks
 }
 
 interface PlaylistTrackRow {
@@ -88,24 +89,46 @@ export const PlaylistRepository = {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { console.warn('[PlaylistRepo] getAllPlaylists: not authenticated'); return []; }
 
-    // Q1: playlist stubs
-    const { data, error } = await supabase
+    // ── Q0: saved playlist IDs for the current user ──────────────────────
+    const { data: savedRows } = await supabase
+      .from('playlist_saves')
+      .select('playlist_id');
+    const savedIdSet = new Set((savedRows ?? []).map((r: { playlist_id: string }) => r.playlist_id));
+    const savedIds = [...savedIdSet];
+
+    // ── Q1a: own playlists (all visibility levels) ───────────────────────
+    const { data: ownData, error: ownErr } = await supabase
       .from('playlists')
-      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+      .eq('user_id', user.id)
       .order('updated_at', { ascending: false });
 
-    if (error) {
-      console.error('[PlaylistRepo] getAllPlaylists ERROR:', error.code, error.message);
+    if (ownErr) {
+      console.error('[PlaylistRepo] getAllPlaylists own ERROR:', ownErr.message);
       return [];
     }
 
-    const stubs = (data ?? []).map(rowToPlaylist);
-    if (stubs.length === 0) return [];
+    // ── Q1b: saved playlists (owned by others, public) ───────────────────
+    let savedData: PlaylistRow[] = [];
+    if (savedIds.length > 0) {
+      const { data: sd, error: sdErr } = await supabase
+        .from('playlists')
+        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+        .in('id', savedIds)
+        .neq('user_id', user.id)           // exclude own (already in Q1a)
+        .order('updated_at', { ascending: false });
+      if (sdErr) {
+        console.error('[PlaylistRepo] getAllPlaylists saved ERROR:', sdErr.message);
+      } else {
+        savedData = (sd ?? []) as PlaylistRow[];
+      }
+    }
 
-    const playlistIds = stubs.map((p) => p.id);
+    const allRows = [...(ownData ?? []) as PlaylistRow[], ...savedData];
+    if (allRows.length === 0) return [];
 
-    // Q2: all track entries for these playlists in one shot.
-    // Order by playlist_id first (for stable grouping), then position (for correct order within each playlist).
+    // ── Q2: batch-fetch all track IDs (for artwork collages) ─────────────
+    const playlistIds = allRows.map((r) => r.id);
     const { data: trackRows, error: trackErr } = await supabase
       .from('playlist_tracks')
       .select('playlist_id, track_id')
@@ -114,11 +137,9 @@ export const PlaylistRepository = {
       .order('position',    { ascending: true });
 
     if (trackErr) {
-      // Log but don't fail — return stubs with empty trackIds
       console.error('[PlaylistRepo] getAllPlaylists track entries ERROR:', trackErr.message);
     }
 
-    // Group track IDs by playlist_id
     const trackMap = new Map<string, string[]>();
     for (const row of ((trackRows ?? []) as { playlist_id: string; track_id: string }[])) {
       const list = trackMap.get(row.playlist_id) ?? [];
@@ -126,10 +147,22 @@ export const PlaylistRepository = {
       trackMap.set(row.playlist_id, list);
     }
 
-    // Merge trackIds into stubs
-    const playlists = stubs.map((p) => ({
-      ...p,
-      trackIds: trackMap.get(p.id) ?? [],
+    // ── Q3: batch-resolve creator usernames ───────────────────────────────
+    const uniqueUserIds = [...new Set(allRows.map((r) => r.user_id))];
+    const { data: profileRows } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .in('id', uniqueUserIds);
+    const profileMap = new Map((profileRows ?? []).map((p: { id: string; username: string }) => [p.id, p.username]));
+
+    // ── Merge ─────────────────────────────────────────────────────────────
+    const playlists = allRows.map((r) => ({
+      ...rowToPlaylist(r),
+      trackIds:        trackMap.get(r.id) ?? [],
+      creatorUserId:   r.user_id,
+      creatorUsername: profileMap.get(r.user_id) ?? 'unknown',
+      isOwned:         r.user_id === user.id,
+      isSaved:         !!(r.user_id !== user.id && savedIdSet.has(r.id)),
     }));
 
     console.log('[PlaylistRepo] getAllPlaylists: fetched', playlists.length, 'playlists');
@@ -427,4 +460,114 @@ export const PlaylistRepository = {
     if (tsErr) console.error('[PlaylistRepo] reorderTracks bump updated_at ERROR:', tsErr.message);
     else       console.log('[PlaylistRepo] reorderTracks SUCCESS');
   },
+
+  // ── Shared playlists: save / unsave ───────────────────────────────────────
+
+  /**
+   * Save a reference to a public playlist owned by another user.
+   * Idempotent (upsert). user_id set by DEFAULT auth.uid().
+   */
+  async savePlaylist(playlistId: string): Promise<void> {
+    console.log('[PlaylistRepo] savePlaylist:', playlistId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('playlist_saves')
+      .upsert({ playlist_id: playlistId });
+    if (error) console.error('[PlaylistRepo] savePlaylist ERROR:', error.message);
+    else       console.log('[PlaylistRepo] savePlaylist SUCCESS');
+  },
+
+  /**
+   * Remove the current user's saved reference to a playlist.
+   * RLS ensures only the saver can remove their own save row.
+   */
+  async unsavePlaylist(playlistId: string): Promise<void> {
+    console.log('[PlaylistRepo] unsavePlaylist:', playlistId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { error } = await supabase
+      .from('playlist_saves')
+      .delete()
+      .eq('playlist_id', playlistId);
+    if (error) console.error('[PlaylistRepo] unsavePlaylist ERROR:', error.message);
+    else       console.log('[PlaylistRepo] unsavePlaylist SUCCESS');
+  },
+
+  /**
+   * Search playlists by title for the search results page.
+   *
+   * Returns:
+   *   1. Current user's own playlists (public + private) matching the query
+   *   2. Other users' public playlists matching the query (RLS-gated)
+   *   3. Does NOT include private playlists from other users
+   *
+   * The RLS policy `user_id = auth.uid() OR is_public = true` means the
+   * ILIKE query automatically returns the correct union without extra filters.
+   *
+   * Creator usernames are resolved via a separate batch profiles query.
+   * isSaved is resolved by checking playlist_saves for the current user.
+   */
+  async searchPlaylists(q: string): Promise<PlaylistSearchResult[]> {
+    console.log('[PlaylistRepo] searchPlaylists:', q);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user || !q.trim()) return [];
+
+    // RLS handles privacy: returns own (all) + others' public only
+    const { data, error } = await supabase
+      .from('playlists')
+      .select('id, title, cover_url, cover_id, is_public, track_count, user_id, updated_at')
+      .ilike('title', `%${q.trim()}%`)
+      .order('updated_at', { ascending: false })
+      .limit(20);
+
+    if (error) {
+      console.error('[PlaylistRepo] searchPlaylists ERROR:', error.message);
+      return [];
+    }
+    if (!data || data.length === 0) return [];
+
+    // Batch-resolve creator usernames
+    const uniqueUserIds = [...new Set((data as PlaylistRow[]).map((r) => r.user_id))];
+    const { data: profileRows } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .in('id', uniqueUserIds);
+    const profileMap = new Map((profileRows ?? []).map((p: { id: string; username: string }) => [p.id, p.username]));
+
+    // Check which of these the user has saved
+    const { data: savedRows } = await supabase
+      .from('playlist_saves')
+      .select('playlist_id')
+      .in('playlist_id', (data as PlaylistRow[]).map((r) => r.id));
+    const savedIdSet = new Set((savedRows ?? []).map((r: { playlist_id: string }) => r.playlist_id));
+
+    return (data as PlaylistRow[]).map((r) => ({
+      id:              r.id,
+      title:           r.title,
+      coverUrl:        r.cover_url ?? undefined,
+      coverId:         r.cover_id  ?? undefined,
+      trackCount:      r.track_count,
+      isPublic:        r.is_public,
+      creatorUsername: profileMap.get(r.user_id) ?? 'unknown',
+      isOwned:         r.user_id === user.id,
+      isSaved:         savedIdSet.has(r.id),
+    }));
+  },
 };
+
+// ── Exported types ────────────────────────────────────────────────────────────
+
+export interface PlaylistSearchResult {
+  id:              string;
+  title:           string;
+  coverUrl?:       string;
+  coverId?:        string;
+  trackCount:      number;
+  isPublic:        boolean;
+  creatorUsername: string;
+  isOwned:         boolean;
+  isSaved:         boolean;
+}

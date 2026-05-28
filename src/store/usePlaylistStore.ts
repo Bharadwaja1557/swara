@@ -47,6 +47,15 @@ export interface Playlist {
   lastInteractedAt?: string;
   /** Ordered track IDs — populated after getPlaylist() or syncFromCloud(). */
   trackIds:    string[];
+  // ── Ownership / sharing fields (added for shared playlist support) ─────────
+  /** UUID of the user who created this playlist. */
+  creatorUserId?: string;
+  /** Resolved username of the creator (e.g. "neo"). */
+  creatorUsername?: string;
+  /** True if the current logged-in user is the creator. */
+  isOwned?: boolean;
+  /** True if the current user saved this playlist (but doesn't own it). */
+  isSaved?: boolean;
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -71,6 +80,11 @@ function backfillTimestamps(p: Partial<Playlist> & { id: string; createdAt: stri
     lastPlayedAt:     p.lastPlayedAt,
     lastInteractedAt: p.lastInteractedAt ?? p.updatedAt,
     trackIds:         p.trackIds ?? [],
+    // Sharing fields — optional, backfill as undefined for cached playlists
+    creatorUserId:    p.creatorUserId,
+    creatorUsername:  p.creatorUsername,
+    isOwned:          p.isOwned,
+    isSaved:          p.isSaved,
   };
 }
 
@@ -124,6 +138,20 @@ interface PlaylistState {
 
   // ── Cloud sync ────────────────────────────────────────────────────────────
   syncFromCloud: () => Promise<void>;
+
+  // ── Shared playlist: save / unsave ────────────────────────────────────────
+  /**
+   * Save a public playlist owned by another user.
+   * Optimistic: adds to local playlists array immediately.
+   * Reference model — does NOT duplicate data. Changes to the original
+   * (title, tracks, cover, order) propagate automatically.
+   */
+  savePlaylist:   (playlist: Playlist) => void;
+  /**
+   * Unsave a previously saved playlist.
+   * Optimistic: removes from local playlists array immediately.
+   */
+  unsavePlaylist: (playlistId: string) => void;
 
   // ── Logout ────────────────────────────────────────────────────────────────
   reset: () => void;
@@ -445,5 +473,42 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     clearCache();
     set({ playlists: [], isSyncing: false, hydrated: false });
     console.log('[Playlists] reset on logout ✓');
+  },
+
+  // ── Save / unsave ─────────────────────────────────────────────────────────
+
+  savePlaylist: (playlist) => {
+    console.log('[Playlists] savePlaylist:', playlist.id);
+    // Optimistic: add to local array with isSaved flag if not already present
+    const existing = get().playlists.find((p) => p.id === playlist.id);
+    if (existing) {
+      // Already in store — just mark as saved
+      const updated = get().playlists.map((p) =>
+        p.id === playlist.id ? { ...p, isSaved: true } : p
+      );
+      writeCache(updated);
+      set({ playlists: updated });
+    } else {
+      // Not in store — add it
+      const updated = [{ ...playlist, isSaved: true, isOwned: false }, ...get().playlists];
+      writeCache(updated);
+      set({ playlists: updated });
+    }
+    // Fire-and-forget cloud write
+    import('@/repositories/playlists/PlaylistRepository')
+      .then(({ PlaylistRepository }) => PlaylistRepository.savePlaylist(playlist.id))
+      .catch((e) => console.warn('[Playlists] savePlaylist cloud write failed', e));
+  },
+
+  unsavePlaylist: (playlistId) => {
+    console.log('[Playlists] unsavePlaylist:', playlistId);
+    // Optimistic: remove non-owned playlists entirely; keep owned ones untouched
+    const updated = get().playlists.filter((p) => !(p.id === playlistId && !p.isOwned));
+    writeCache(updated);
+    set({ playlists: updated });
+    // Fire-and-forget cloud write
+    import('@/repositories/playlists/PlaylistRepository')
+      .then(({ PlaylistRepository }) => PlaylistRepository.unsavePlaylist(playlistId))
+      .catch((e) => console.warn('[Playlists] unsavePlaylist cloud write failed', e));
   },
 }));

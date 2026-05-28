@@ -43,6 +43,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useLibraryStore }    from '@/store/libraryStore';
 import { usePlayerStore }     from '@/store/playerStore';
 import { usePlaylistStore }   from '@/store/usePlaylistStore';
+import { useAuthStore }       from '@/store/useAuthStore';
 import { trackActions }       from '@/lib/trackActions';
 import SongRow                from '@/components/ui/SongRow';
 import { PlaylistArtwork }    from '@/features/artwork';
@@ -121,7 +122,9 @@ const PlaylistPage = () => {
   const { id }      = useParams<{ id: string }>();
   const navigate    = useNavigate();
   const { trackMap } = useLibraryStore();
-  const { getPlaylist, loadPlaylistTracks, removeTrackFromPlaylist, reorderPlaylistTracks } = usePlaylistStore();
+  const { getPlaylist, loadPlaylistTracks, removeTrackFromPlaylist, reorderPlaylistTracks,
+          savePlaylist, unsavePlaylist } = usePlaylistStore();
+  const userId = useAuthStore((s) => s.user?.id);
 
   const [entries,     setEntries]     = useState<PlaylistTrackEntry[]>([]);
   const [loading,     setLoading]     = useState(true);
@@ -133,6 +136,12 @@ const PlaylistPage = () => {
   const toggleShuffle = usePlayerStore((s) => s.toggleShuffle);
 
   const playlist = id ? getPlaylist(id) : undefined;
+  // Ownership: if isOwned is explicitly set use it, otherwise fall back to
+  // checking creatorUserId === current user. For own playlists created before
+  // the sharing feature, isOwned may be undefined — treat as owned (safe default).
+  const isOwned = playlist
+    ? (playlist.isOwned === undefined ? playlist.creatorUserId === userId || !playlist.creatorUserId : playlist.isOwned)
+    : true;
 
   const resolvedTracks = entries
     .map((e) => ({ entry: e, track: trackMap.get(e.trackId) }))
@@ -244,6 +253,12 @@ const PlaylistPage = () => {
             <h1 className="text-[1.3rem] lg:text-[2.6rem] font-bold text-swara-text tracking-tight font-display mb-0.5 lg:mb-2 lg:leading-none">
               {playlist?.title ?? '…'}
             </h1>
+            {/* Creator attribution — always shown, subtle */}
+            {playlist?.creatorUsername && (
+              <p className="text-[0.78rem] text-swara-dim mb-1">
+                by {playlist.creatorUsername}
+              </p>
+            )}
             {playlist?.description && (
               <p className="text-[0.85rem] text-swara-muted mb-1.5 line-clamp-2">
                 {playlist.description}
@@ -259,34 +274,63 @@ const PlaylistPage = () => {
               )}
             </p>
 
-            {/* Action pills — Edit + Reorder */}
-            <div className="flex items-center gap-2 mt-2">
-              <button type="button" onClick={() => setEditOpen(true)}
-                className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all">
-                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
-                  strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
-                  <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                </svg>
-                Edit playlist
-              </button>
+            {/* Action pills */}
+            <div className="flex items-center gap-2 mt-2 flex-wrap">
+              {/* Edit + Reorder — only for owned playlists */}
+              {isOwned && (
+                <>
+                  <button type="button" onClick={() => setEditOpen(true)}
+                    className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all">
+                    <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
+                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+                      <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                    </svg>
+                    Edit playlist
+                  </button>
 
-              {trackCount > 1 && !manageMode && (
-                <button type="button" onClick={() => setManageMode(true)}
-                  className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all">
-                  <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                    <line x1="4" y1="8"  x2="20" y2="8"/>
-                    <line x1="4" y1="16" x2="20" y2="16"/>
-                  </svg>
-                  Reorder
-                </button>
+                  {trackCount > 1 && !manageMode && (
+                    <button type="button" onClick={() => setManageMode(true)}
+                      className="inline-flex items-center gap-1.5 h-7 px-3 rounded-full border border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text text-[0.72rem] font-medium transition-all">
+                      <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor"
+                        strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                        <line x1="4" y1="8"  x2="20" y2="8"/>
+                        <line x1="4" y1="16" x2="20" y2="16"/>
+                      </svg>
+                      Reorder
+                    </button>
+                  )}
+
+                  {manageMode && (
+                    <button type="button" onClick={() => setManageMode(false)}
+                      className="inline-flex items-center h-7 px-3 rounded-full bg-swara-accent text-swara-bg text-[0.72rem] font-semibold transition-all active:scale-95">
+                      Done
+                    </button>
+                  )}
+                </>
               )}
 
-              {manageMode && (
-                <button type="button" onClick={() => setManageMode(false)}
-                  className="inline-flex items-center h-7 px-3 rounded-full bg-swara-accent text-swara-bg text-[0.72rem] font-semibold transition-all active:scale-95">
-                  Done
+              {/* Save / Unsave — only for non-owned playlists */}
+              {!isOwned && playlist && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (playlist.isSaved) unsavePlaylist(playlist.id);
+                    else savePlaylist(playlist);
+                  }}
+                  className={[
+                    'inline-flex items-center gap-1.5 h-7 px-3 rounded-full border text-[0.72rem] font-medium transition-all',
+                    playlist.isSaved
+                      ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
+                      : 'border-swara-border text-swara-muted hover:border-swara-muted hover:text-swara-text',
+                  ].join(' ')}
+                  aria-pressed={playlist.isSaved}
+                >
+                  <svg viewBox="0 0 24 24" width="11" height="11" fill={playlist.isSaved ? 'currentColor' : 'none'}
+                    stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
+                  </svg>
+                  {playlist.isSaved ? 'Saved' : 'Save Playlist'}
                 </button>
               )}
             </div>

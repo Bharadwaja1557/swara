@@ -1,54 +1,63 @@
 /**
- * SearchPage — unified search + catalog browser (mobile & desktop).
+ * SearchPage — unified search + catalog browser.
  *
- * Layout (when not searching):
- *   1. Search bar
- *   2. History section  (below bar, above browse)
- *   3. Browse cards     (Albums / Composers / Singers / Year)
- *   4. Browse content   (inline — no navigation away)
+ * REFINEMENT PASS 4:
  *
- * Layout (when searching):
- *   1. Search bar
- *   2. Filter chips
- *   3. Results
+ *   1. Search history: entity tiles instead of raw query text.
+ *      Clicking a history entity performs its natural action:
+ *        track  → plays the song
+ *        album  → navigates to album page
+ *        artist → navigates to artist page
  *
- * Browse sections show the FULL CATALOG — NOT the user's personal library.
+ *   2. Browse cards: 4 columns on large screens (single row).
+ *      When a browse card is active, the history section is hidden and
+ *      browse floats to the top — focused browsing mode.
  *
- * ── SEARCH MATCHING ARCHITECTURE ─────────────────────────────────────────────
- * Each section matches ONLY its own primary field:
- *   Tracks  → track.title only
- *   Albums  → album.title only
- *   Artists → artist.name only
+ *   3. Playlists in search results.
+ *      Own playlists (public + private) + saved + other users' public.
+ *      Private playlists from other users are excluded (RLS + client).
  *
- * Cross-entity fields (artist on tracks, composer on albums) are intentionally
- * excluded to prevent section-pollution when querying an artist name.
+ * ── MATCHING ARCHITECTURE ─────────────────────────────────────────────────────
+ *   Tracks  → title only
+ *   Albums  → album title only
+ *   Artists → artist name only
+ *   Playlists → playlist name, via async Supabase query
  */
 import { useState, useMemo, useRef, useEffect, useCallback, memo } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useLibraryStore }          from '@/store/libraryStore';
-import { useSearchHistoryStore }    from '@/store/useSearchHistoryStore';
-import { useDesktopSearchStore }    from '@/store/useDesktopSearchStore';
-import { useIsDesktop }             from '@/hooks/useIsDesktop';
-import { trackActions }             from '@/lib/trackActions';
-import SongRow                      from '@/components/ui/SongRow';
-import type { Album, Artist }       from '@/types/music';
+import { useNavigate }                  from 'react-router-dom';
+import { useLibraryStore }              from '@/store/libraryStore';
+import { useSearchHistoryStore }        from '@/store/useSearchHistoryStore';
+import { useDesktopSearchStore }        from '@/store/useDesktopSearchStore';
+import { useIsDesktop }                 from '@/hooks/useIsDesktop';
+import { trackActions }                 from '@/lib/trackActions';
+import { PlaylistRepository }           from '@/repositories/playlists/PlaylistRepository';
+import type { PlaylistSearchResult }    from '@/repositories/playlists/PlaylistRepository';
+import { PlaylistArtwork }              from '@/features/artwork';
+import SongRow                          from '@/components/ui/SongRow';
+import type { Album, Artist }           from '@/types/music';
+import type { HistoryEntity }           from '@/store/useSearchHistoryStore';
+import type { Playlist }                from '@/store/usePlaylistStore';
 
-type Filter     = 'All' | 'Tracks' | 'Albums' | 'Artists';
+type Filter     = 'All' | 'Tracks' | 'Albums' | 'Artists' | 'Playlists';
 type BrowseMode = 'Albums' | 'Composers' | 'Singers' | 'Year' | null;
 type AlbumSort  = 'A-Z' | 'Z-A' | 'Latest' | 'Oldest';
 type YearOrder  = 'latest' | 'oldest';
 type AlbumView  = 'grid' | 'list';
 
-const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists'];
+const FILTERS: Filter[] = ['All', 'Tracks', 'Albums', 'Artists', 'Playlists'];
+const SEARCH_MAX = 5;
 
-// ─── Sub-rows ─────────────────────────────────────────────────────────────────
+const PH_ALBUM  = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
+const PH_ARTIST = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><circle cx="50" cy="38" r="20" fill="%233E3D3A"/><ellipse cx="50" cy="80" rx="30" ry="18" fill="%233E3D3A"/></svg>';
+
+// ─── Result row sub-components ────────────────────────────────────────────────
 
 const AlbumRow = ({ album, onResultClick }: { album: Album; onResultClick?: () => void }) => {
   const navigate = useNavigate();
   return (
     <button type="button" onClick={() => { onResultClick?.(); navigate(`/album/${album.id}`); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
-      <img src={album.coverUrl} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
+      <img src={album.coverUrl || PH_ALBUM} alt="" className="w-11 h-11 rounded-xl object-cover flex-shrink-0 bg-swara-elevated" loading="lazy" />
       <div className="flex-1 min-w-0">
         <p className="text-[0.88rem] font-medium text-swara-text truncate">{album.title}</p>
         <p className="text-[0.72rem] text-swara-muted truncate">{album.composer} · {album.year}</p>
@@ -66,11 +75,41 @@ const ArtistRow = ({ artist, onResultClick }: { artist: Artist; onResultClick?: 
     <button type="button" onClick={() => { onResultClick?.(); navigate(`/artist/${artist.id}`); }}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <div className="w-11 h-11 rounded-full overflow-hidden flex-shrink-0 bg-swara-elevated">
-        <img src={artist.coverUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+        <img src={artist.coverUrl || PH_ARTIST} alt="" className="w-full h-full object-cover" loading="lazy" />
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[0.88rem] font-medium text-swara-text truncate">{artist.name}</p>
         <p className="text-[0.72rem] text-swara-muted truncate">{artist.albumIds.length} album{artist.albumIds.length !== 1 ? 's' : ''}</p>
+      </div>
+      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
+        <path d="m9 18 6-6-6-6"/>
+      </svg>
+    </button>
+  );
+};
+
+const PlaylistResultRow = ({ result, onResultClick }: { result: PlaylistSearchResult; onResultClick?: () => void }) => {
+  const navigate = useNavigate();
+  // Construct minimal Playlist for PlaylistArtwork (no trackIds → shows preset or placeholder)
+  const minimalPlaylist: Playlist = {
+    id: result.id, title: result.title, isPublic: result.isPublic,
+    trackCount: result.trackCount, createdAt: '', updatedAt: '', trackIds: [],
+    coverImageUrl: result.coverUrl, coverId: result.coverId,
+    creatorUsername: result.creatorUsername, isOwned: result.isOwned, isSaved: result.isSaved,
+  };
+  return (
+    <button type="button" onClick={() => { onResultClick?.(); navigate(`/playlist/${result.id}`); }}
+      className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
+      <div className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 bg-swara-elevated">
+        <PlaylistArtwork playlist={minimalPlaylist} size={44} className="w-11 h-11 rounded-xl" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[0.88rem] font-medium text-swara-text truncate">{result.title}</p>
+        <p className="text-[0.72rem] text-swara-muted truncate">
+          by {result.creatorUsername}
+          {result.trackCount > 0 && ` · ${result.trackCount} track${result.trackCount !== 1 ? 's' : ''}`}
+          {result.isSaved && <span className="ml-1 text-swara-accent">· Saved</span>}
+        </p>
       </div>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
         <path d="m9 18 6-6-6-6"/>
@@ -85,6 +124,57 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     {children}
   </div>
 );
+
+// ─── History entity tile ───────────────────────────────────────────────────────
+// Compact tile for a previously-clicked entity.
+// Track tiles play on click; album/artist tiles navigate.
+
+const HistoryTile = ({ entry, onPlay, onNavigate, onRemove }: {
+  entry: ReturnType<typeof useSearchHistoryStore.getState>['entries'][number];
+  onPlay:     () => void;
+  onNavigate: () => void;
+  onRemove:   () => void;
+}) => {
+  const { entity } = entry;
+  const isCircle = entity.type === 'artist';
+  const imgClass = isCircle
+    ? 'w-9 h-9 rounded-full object-cover bg-swara-elevated flex-shrink-0'
+    : 'w-9 h-9 rounded-lg object-cover bg-swara-elevated flex-shrink-0';
+
+  return (
+    <div className="flex items-center gap-0 group">
+      <button
+        type="button"
+        onClick={entity.type === 'track' ? onPlay : onNavigate}
+        className="flex-1 flex items-center gap-2.5 py-2 px-3 rounded-xl hover:bg-swara-card text-left transition-colors"
+        aria-label={entity.type === 'track' ? `Play ${entity.title}` : `Open ${entity.title}`}
+      >
+        <img
+          src={entity.coverUrl || PH_ALBUM}
+          alt=""
+          className={imgClass}
+          loading="lazy"
+          onError={(e) => { (e.target as HTMLImageElement).src = entity.type === 'artist' ? PH_ARTIST : PH_ALBUM; }}
+        />
+        <div className="flex-1 min-w-0">
+          <p className="text-[0.85rem] font-medium text-swara-text truncate leading-tight">{entity.title}</p>
+          <p className="text-[0.7rem] text-swara-muted truncate mt-0.5 leading-tight">{entity.subtitle}</p>
+        </div>
+        {/* Type badge */}
+        <span className="text-[0.6rem] font-semibold uppercase tracking-wider text-swara-dim flex-shrink-0 opacity-60 capitalize">
+          {entity.type}
+        </span>
+      </button>
+      <button type="button" onClick={onRemove}
+        className="w-8 h-8 flex items-center justify-center text-swara-dim hover:text-swara-muted transition-colors flex-shrink-0 opacity-0 group-hover:opacity-100"
+        aria-label={`Remove from history`}>
+        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  );
+};
 
 // ─── Catalog album card (for browse grid) ─────────────────────────────────────
 
@@ -103,61 +193,50 @@ const CatalogAlbumCard = memo(({ album }: { album: Album }) => {
 });
 
 // ─── Browse cards ─────────────────────────────────────────────────────────────
-// 2×2 responsive grid. Each card has an icon, title, and a count subtitle.
 
 const BROWSE_CARDS: {
-  mode:    BrowseMode;
-  label:   string;
-  sub:     (counts: { albums: number; composers: number; singers: number }) => string;
-  icon:    React.ReactNode;
+  mode:  BrowseMode;
+  label: string;
+  sub:   (counts: { albums: number; composers: number; singers: number }) => string;
+  icon:  React.ReactNode;
 }[] = [
   {
-    mode:  'Albums',
-    label: 'Albums',
-    sub:   ({ albums }) => `${albums} album${albums !== 1 ? 's' : ''}`,
-    icon:  (
+    mode: 'Albums', label: 'Albums',
+    sub: ({ albums }) => `${albums} album${albums !== 1 ? 's' : ''}`,
+    icon: (
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <rect x="3" y="3" width="18" height="18" rx="3"/>
-        <circle cx="12" cy="12" r="3"/>
-        <circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
+        <rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none"/>
       </svg>
     ),
   },
   {
-    mode:  'Composers',
-    label: 'Composers',
-    sub:   ({ composers }) => `${composers} composer${composers !== 1 ? 's' : ''}`,
-    icon:  (
+    mode: 'Composers', label: 'Composers',
+    sub: ({ composers }) => `${composers} composer${composers !== 1 ? 's' : ''}`,
+    icon: (
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M9 18V5l12-2v13"/>
-        <circle cx="6" cy="18" r="3"/>
-        <circle cx="18" cy="16" r="3"/>
+        <path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>
       </svg>
     ),
   },
   {
-    mode:  'Singers',
-    label: 'Singers',
-    sub:   ({ singers }) => `${singers} singer${singers !== 1 ? 's' : ''}`,
-    icon:  (
+    mode: 'Singers', label: 'Singers',
+    sub: ({ singers }) => `${singers} singer${singers !== 1 ? 's' : ''}`,
+    icon: (
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 2a3 3 0 003 3v5a3 3 0 01-6 0V5a3 3 0 013-3z"/>
         <path d="M19 10a7 7 0 01-14 0"/>
-        <line x1="12" y1="19" x2="12" y2="22"/>
-        <line x1="8"  y1="22" x2="16" y2="22"/>
+        <line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/>
       </svg>
     ),
   },
   {
-    mode:  'Year',
-    label: 'By Year',
-    sub:   ({ albums }) => `${albums} album${albums !== 1 ? 's' : ''}`,
-    icon:  (
+    mode: 'Year', label: 'By Year',
+    sub: ({ albums }) => `${albums} album${albums !== 1 ? 's' : ''}`,
+    icon: (
       <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <rect x="3" y="4" width="18" height="18" rx="2"/>
-        <line x1="16" y1="2" x2="16" y2="6"/>
-        <line x1="8"  y1="2" x2="8"  y2="6"/>
-        <line x1="3"  y1="10" x2="21" y2="10"/>
+        <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/>
       </svg>
     ),
   },
@@ -166,29 +245,32 @@ const BROWSE_CARDS: {
 // ─── SearchPage ───────────────────────────────────────────────────────────────
 
 const SearchPage = () => {
-  const [query,        setQuery]        = useState('');
-  const [debouncedQ,   setDebouncedQ]   = useState('');
-  const [activeFilter, setActiveFilter] = useState<Filter>('All');
-  const [indexing,     setIndexing]     = useState(false);
-  const [browseMode,   setBrowseMode]   = useState<BrowseMode>(null);
-  const [albumSort,    setAlbumSort]    = useState<AlbumSort>('A-Z');
-  const [albumView,    setAlbumView]    = useState<AlbumView>('grid');
-  const [yearOrder,    setYearOrder]    = useState<YearOrder>('latest');
+  const [query,          setQuery]          = useState('');
+  const [debouncedQ,     setDebouncedQ]     = useState('');
+  const [activeFilter,   setActiveFilter]   = useState<Filter>('All');
+  const [indexing,       setIndexing]       = useState(false);
+  const [browseMode,     setBrowseMode]     = useState<BrowseMode>(null);
+  const [albumSort,      setAlbumSort]      = useState<AlbumSort>('A-Z');
+  const [albumView,      setAlbumView]      = useState<AlbumView>('grid');
+  const [yearOrder,      setYearOrder]      = useState<YearOrder>('latest');
+  const [playlistResults, setPlaylistResults] = useState<PlaylistSearchResult[]>([]);
+  const [plSearching,    setPlSearching]    = useState(false);
 
-  const isDesktop = useIsDesktop();
-  const inputRef  = useRef<HTMLInputElement>(null);
+  const isDesktop  = useIsDesktop();
+  const inputRef   = useRef<HTMLInputElement>(null);
   const hasIndexed = useRef(false);
+  const navigate   = useNavigate();
 
   const { tracks, albums, artists, loaded } = useLibraryStore();
-  const history       = useSearchHistoryStore((s) => s.entries);
-  const pushHistory   = useSearchHistoryStore((s) => s.push);
-  const clearHistory  = useSearchHistoryStore((s) => s.clear);
-  const removeHistory = useSearchHistoryStore((s) => s.remove);
+  const historyEntries  = useSearchHistoryStore((s) => s.entries);
+  const pushEntity      = useSearchHistoryStore((s) => s.pushEntity);
+  const clearHistory    = useSearchHistoryStore((s) => s.clear);
+  const removeHistory   = useSearchHistoryStore((s) => s.remove);
 
   const desktopStoreQuery = useDesktopSearchStore((s) => s.query);
   const effectiveQuery    = isDesktop ? desktopStoreQuery : query;
 
-  // Auto-focus input on mount (mobile only)
+  // Auto-focus on mount (mobile only)
   useEffect(() => {
     if (isDesktop) return;
     const t = setTimeout(() => inputRef.current?.focus(), 80);
@@ -204,8 +286,7 @@ const SearchPage = () => {
   const q           = debouncedQ.trim().toLowerCase();
   const isSearching = q.length > 0;
 
-  // ── Load all tracks for search (once per session) ──────────────────────────
-
+  // Load all tracks for full-text search (once per session)
   const loadAll = useCallback(async () => {
     if (hasIndexed.current) return;
     const { albums: snap, loadAlbumTracks } = useLibraryStore.getState();
@@ -222,10 +303,27 @@ const SearchPage = () => {
     loadAll();
   }, [q, loaded, activeFilter, loadAll]);
 
-  // ── Clear search — used by onResultClick ──────────────────────────────────
-  // Clears BOTH the local query and the debounced query immediately so the
-  // results section collapses instantly (not after the 200ms debounce).
-  // On desktop also clears the shared store so the top-bar input empties.
+  // Async playlist search — triggers on query change when filter includes playlists
+  useEffect(() => {
+    if (!q || !(activeFilter === 'All' || activeFilter === 'Playlists')) {
+      setPlaylistResults([]);
+      setPlSearching(false);
+      return;
+    }
+    let cancelled = false;
+    setPlSearching(true);
+    PlaylistRepository.searchPlaylists(q)
+      .then((results) => {
+        if (!cancelled) {
+          setPlaylistResults(results.slice(0, SEARCH_MAX));
+          setPlSearching(false);
+        }
+      })
+      .catch(() => { if (!cancelled) setPlSearching(false); });
+    return () => { cancelled = true; };
+  }, [q, activeFilter]);
+
+  // Clear search — collapses results instantly
   const clearSearch = useCallback(() => {
     if (isDesktop) {
       useDesktopSearchStore.getState().setQuery('');
@@ -233,40 +331,28 @@ const SearchPage = () => {
       setQuery('');
       inputRef.current?.blur();
     }
-    setDebouncedQ(''); // immediate — don't wait for the 200ms debounce
+    setDebouncedQ('');
   }, [isDesktop]);
 
   const handleSearch = (val: string) => setQuery(val);
 
-  const handleSubmit = () => {
-    if (q) pushHistory(effectiveQuery.trim());
-  };
-
-  // ── Filtered results — section-specific matching ──────────────────────────
-  // Each section matches ONLY its own primary text field.
-  // This prevents cross-entity pollution (e.g. an artist name matching
-  // in the Tracks section when only the track title should qualify).
-  const MAX = 5;
-
+  // ── Filtered search results ────────────────────────────────────────────────
   const matchedTracks = useMemo(() =>
-    // Tracks: title only
-    q ? tracks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, MAX) : [],
+    q ? tracks.filter((t) => t.title.toLowerCase().includes(q)).slice(0, SEARCH_MAX) : [],
   [q, tracks]);
 
   const matchedAlbums = useMemo(() =>
-    // Albums: album title only (not composer)
-    q ? albums.filter((a) => a.title.toLowerCase().includes(q)).slice(0, MAX) : [],
+    q ? albums.filter((a) => a.title.toLowerCase().includes(q)).slice(0, SEARCH_MAX) : [],
   [q, albums]);
 
   const matchedArtists = useMemo(() =>
-    // Artists: artist name only (unchanged — already correct)
-    q ? artists.filter((a) => a.name.toLowerCase().includes(q)).slice(0, MAX) : [],
+    q ? artists.filter((a) => a.name.toLowerCase().includes(q)).slice(0, SEARCH_MAX) : [],
   [q, artists]);
 
-  const hasResults = matchedTracks.length > 0 || matchedAlbums.length > 0 || matchedArtists.length > 0;
+  const hasResults = matchedTracks.length > 0 || matchedAlbums.length > 0 ||
+                     matchedArtists.length > 0 || playlistResults.length > 0;
 
-  // ── Browse: sorted albums ─────────────────────────────────────────────────
-
+  // ── Browse data ────────────────────────────────────────────────────────────
   const browseAlbums = useMemo(() => {
     const list = [...albums];
     if (albumSort === 'A-Z')    list.sort((a, b) => a.title.localeCompare(b.title));
@@ -276,21 +362,13 @@ const SearchPage = () => {
     return list;
   }, [albums, albumSort]);
 
-  // Composers: artists who composed at least one album
   const browseComposers = useMemo(() =>
-    [...artists]
-      .filter((a) => a.composerAlbumIds.length > 0)
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    [...artists].filter((a) => a.composerAlbumIds.length > 0).sort((a, b) => a.name.localeCompare(b.name)),
   [artists]);
 
-  // Singers: artists who appear as track performers (vocalist/instrumentalist)
   const browseSingers = useMemo(() =>
-    [...artists]
-      .filter((a) => a.trackIds.length > 0)
-      .sort((a, b) => a.name.localeCompare(b.name)),
+    [...artists].filter((a) => a.trackIds.length > 0).sort((a, b) => a.name.localeCompare(b.name)),
   [artists]);
-
-  // ── Browse: albums grouped by year ────────────────────────────────────────
 
   const albumsByYear = useMemo(() => {
     const sorted = [...albums].sort((a, b) =>
@@ -304,26 +382,42 @@ const SearchPage = () => {
     return map;
   }, [albums, yearOrder]);
 
-  // ── Browse card counts ────────────────────────────────────────────────────
-
   const counts = useMemo(() => ({
-    albums:    albums.length,
-    composers: browseComposers.length,
-    singers:   browseSingers.length,
+    albums: albums.length, composers: browseComposers.length, singers: browseSingers.length,
   }), [albums.length, browseComposers.length, browseSingers.length]);
-
-  // ── Browse toggle ─────────────────────────────────────────────────────────
 
   const handleBrowse = (mode: BrowseMode) => {
     setBrowseMode((prev) => prev === mode ? null : mode);
   };
 
+  // ── onResultClick: push entity to history ─────────────────────────────────
+  const buildTrackEntity = useCallback((trackId: string): HistoryEntity | null => {
+    const t = tracks.find((x) => x.id === trackId);
+    if (!t) return null;
+    return { type: 'track', id: t.id, title: t.title, coverUrl: t.coverUrl, subtitle: t.artist };
+  }, [tracks]);
+
+  const buildAlbumEntity = (album: Album): HistoryEntity => ({
+    type: 'album', id: album.id, title: album.title, coverUrl: album.coverUrl, subtitle: album.composer,
+  });
+
+  const buildArtistEntity = (artist: Artist): HistoryEntity => ({
+    type: 'artist', id: artist.id, title: artist.name, coverUrl: artist.coverUrl,
+    subtitle: `${artist.albumIds.length} album${artist.albumIds.length !== 1 ? 's' : ''}`,
+  });
+
+  const makeOnResultClick = useCallback((entity: HistoryEntity) => {
+    pushEntity(entity);
+    clearSearch();
+  }, [pushEntity, clearSearch]);
+
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-full bg-swara-bg max-w-2xl mx-auto lg:max-w-none">
 
-      {/* ── Search bar — mobile only ── */}
+      {/* Mobile search bar */}
       {!isDesktop && (
-        <div className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 lg:px-8 pt-5 pb-3">
+        <div className="sticky top-0 z-10 bg-swara-bg/98 backdrop-blur-sm px-4 pt-5 pb-3">
           <div className="relative">
             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2"
               strokeLinecap="round" strokeLinejoin="round"
@@ -335,7 +429,6 @@ const SearchPage = () => {
               type="search"
               value={query}
               onChange={(e) => handleSearch(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); } }}
               placeholder="Search catalog…"
               autoComplete="off"
               spellCheck={false}
@@ -365,7 +458,7 @@ const SearchPage = () => {
                   {f}
                 </button>
               ))}
-              {indexing && (
+              {(indexing || plSearching) && (
                 <div className="flex-shrink-0 flex items-center gap-1.5 text-swara-dim text-[0.72rem] px-1">
                   <div className="w-3 h-3 rounded-full border border-swara-border border-t-swara-accent animate-spin" />
                   Indexing…
@@ -392,63 +485,56 @@ const SearchPage = () => {
                 {f}
               </button>
             ))}
-            {indexing && (
-              <div className="flex-shrink-0 flex items-center gap-1.5 text-swara-dim text-[0.72rem] px-1">
-                <div className="w-3 h-3 rounded-full border border-swara-border border-t-swara-accent animate-spin" />
-                Indexing…
-              </div>
-            )}
           </div>
         )}
 
-        {/* ══ NOT SEARCHING: History + Browse ════════════════════════════════ */}
+        {/* ══ NOT SEARCHING ═══════════════════════════════════════════════════ */}
         {!isSearching && (
           <>
-            {/* History */}
-            {history.length > 0 && (
+            {/* History — hidden when browse mode is active (focused browsing) */}
+            {!browseMode && historyEntries.length > 0 && (
               <div className="mb-6">
                 <div className="flex items-center justify-between mb-2">
-                  <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase px-1">History</p>
+                  <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase px-1">
+                    Recent
+                  </p>
                   <button type="button" onClick={clearHistory}
                     className="text-[0.72rem] text-swara-dim hover:text-swara-muted transition-colors px-1">
                     Clear
                   </button>
                 </div>
                 <div className="flex flex-col gap-0">
-                  {history.map((entry) => (
-                    <div key={entry.id} className="flex items-center gap-0">
-                      <button type="button"
-                        onClick={() => {
-                          if (isDesktop) {
-                            useDesktopSearchStore.getState().setQuery(entry.query);
-                          } else {
-                            setQuery(entry.query);
-                            inputRef.current?.focus();
-                          }
-                        }}
-                        className="flex-1 flex items-center gap-2.5 py-2 px-3 rounded-xl hover:bg-swara-card text-left transition-colors">
-                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
-                          <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
-                        </svg>
-                        <span className="text-[0.88rem] text-swara-text truncate">{entry.query}</span>
-                      </button>
-                      <button type="button" onClick={() => removeHistory(entry.id)}
-                        className="w-9 h-9 flex items-center justify-center text-swara-dim hover:text-swara-muted transition-colors flex-shrink-0"
-                        aria-label={`Remove "${entry.query}" from history`}>
-                        <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-                          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-                        </svg>
-                      </button>
-                    </div>
+                  {historyEntries.map((entry) => (
+                    <HistoryTile
+                      key={entry.id}
+                      entry={entry}
+                      onPlay={() => {
+                        // Resolve full track from library and play
+                        const track = tracks.find((t) => t.id === entry.entity.id);
+                        if (track) trackActions.play(track);
+                      }}
+                      onNavigate={() => {
+                        if (entry.entity.type === 'album')  navigate(`/album/${entry.entity.id}`);
+                        if (entry.entity.type === 'artist') navigate(`/artist/${entry.entity.id}`);
+                      }}
+                      onRemove={() => removeHistory(entry.id)}
+                    />
                   ))}
                 </div>
               </div>
             )}
 
-            {/* ── Browse cards — 2×2 grid ─────────────────────────────────── */}
+            {/* ── Browse cards
+                Mobile/tablet: 2 columns
+                Large desktop: 4 columns (single row) ── */}
             <div className="mb-4">
-              <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Browse</p>
-              <div className="grid grid-cols-2 gap-3">
+              {browseMode && (
+                <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Browse</p>
+              )}
+              {!browseMode && (
+                <p className="text-[0.68rem] font-semibold text-swara-muted tracking-widest uppercase mb-3 px-1">Browse</p>
+              )}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                 {BROWSE_CARDS.map(({ mode, label, sub, icon }) => {
                   const isActive = browseMode === mode;
                   return (
@@ -459,9 +545,7 @@ const SearchPage = () => {
                           ? 'bg-swara-accent/10 border-swara-accent text-swara-accent'
                           : 'bg-swara-card border-swara-border text-swara-muted hover:border-swara-border/80 hover:text-swara-text hover:bg-swara-elevated',
                       ].join(' ')}>
-                      <span className={isActive ? 'text-swara-accent' : 'text-swara-dim'}>
-                        {icon}
-                      </span>
+                      <span className={isActive ? 'text-swara-accent' : 'text-swara-dim'}>{icon}</span>
                       <div>
                         <p className="text-[0.85rem] font-semibold leading-tight">{label}</p>
                         <p className="text-[0.68rem] mt-0.5 opacity-70">{sub(counts)}</p>
@@ -472,7 +556,7 @@ const SearchPage = () => {
               </div>
             </div>
 
-            {/* ── Inline browse: Albums ── */}
+            {/* ── Inline browse content ── */}
             {browseMode === 'Albums' && (
               <div className="mt-2">
                 <div className="flex items-center justify-between mb-3 px-1">
@@ -518,7 +602,6 @@ const SearchPage = () => {
               </div>
             )}
 
-            {/* ── Inline browse: Composers ── */}
             {browseMode === 'Composers' && (
               <div className="mt-2">
                 <p className="text-[0.82rem] font-semibold text-swara-text mb-3 px-1">
@@ -530,7 +613,6 @@ const SearchPage = () => {
               </div>
             )}
 
-            {/* ── Inline browse: Singers ── */}
             {browseMode === 'Singers' && (
               <div className="mt-2">
                 <p className="text-[0.82rem] font-semibold text-swara-text mb-3 px-1">
@@ -542,7 +624,6 @@ const SearchPage = () => {
               </div>
             )}
 
-            {/* ── Inline browse: Year ── */}
             {browseMode === 'Year' && (
               <div className="mt-2">
                 <div className="flex items-center justify-between mb-3 px-1">
@@ -559,16 +640,10 @@ const SearchPage = () => {
                     ))}
                   </div>
                 </div>
-
-                {/* Year sections with sticky headings ─────────────────────────
-                    Each year label sticks to top-16 (= 64px, the mobile search
-                    bar height) on mobile and top-0 on desktop (no sticky bar). */}
                 {Array.from(albumsByYear.entries()).map(([year, yearAlbums]) => (
                   <div key={year} className="mb-5">
                     <div className="sticky top-16 lg:top-0 z-[5] bg-swara-bg py-1.5 px-1 -mx-1 mb-2">
-                      <p className="text-[0.65rem] font-semibold text-swara-dim tracking-widest uppercase">
-                        {year}
-                      </p>
+                      <p className="text-[0.65rem] font-semibold text-swara-dim tracking-widest uppercase">{year}</p>
                     </div>
                     <div className="grid grid-cols-3 lg:grid-cols-4 gap-3">
                       {yearAlbums.map((a) => <CatalogAlbumCard key={a.id} album={a} />)}
@@ -580,48 +655,76 @@ const SearchPage = () => {
           </>
         )}
 
-        {/* ══ SEARCHING: Results ═════════════════════════════════════════════ */}
+        {/* ══ SEARCHING ═══════════════════════════════════════════════════════ */}
         {isSearching && (
           <>
-            {!hasResults && !indexing && (
+            {!hasResults && !indexing && !plSearching && (
               <div className="flex flex-col items-center justify-center py-16 gap-2">
                 <p className="text-[0.9rem] font-medium text-swara-muted">No results for "{effectiveQuery}"</p>
                 <p className="text-[0.78rem] text-swara-dim">Try a different spelling or keyword</p>
               </div>
             )}
 
-            {hasResults && (() => {
-              // onResultClick: push to history and clear the search query so
-              // returning to SearchPage shows the browse/history state, not
-              // stale results. Clears immediately (no debounce delay).
-              const onResultClick = () => {
-                if (effectiveQuery.trim()) pushHistory(effectiveQuery.trim());
-                clearSearch();
+            {(hasResults || indexing || plSearching) && (() => {
+              const onResultClickFor = (entity: HistoryEntity) => () => {
+                makeOnResultClick(entity);
               };
+
               return (
                 <>
                   {(activeFilter === 'All' || activeFilter === 'Tracks') && matchedTracks.length > 0 && (
                     <Section title="Tracks">
                       <ul className="space-y-0">
-                        {matchedTracks.map((t) => (
-                          <SongRow
-                            key={t.id}
-                            track={t}
-                            onPlay={() => { onResultClick(); trackActions.playFromSearch(t, matchedTracks, effectiveQuery); }}
-                            menuContext="default"
-                          />
-                        ))}
+                        {matchedTracks.map((t) => {
+                          const entity: HistoryEntity = buildTrackEntity(t.id) ?? {
+                            type: 'track', id: t.id, title: t.title, coverUrl: t.coverUrl, subtitle: t.artist,
+                          };
+                          return (
+                            <SongRow
+                              key={t.id}
+                              track={t}
+                              onPlay={() => {
+                                makeOnResultClick(entity);
+                                trackActions.playFromSearch(t, matchedTracks, effectiveQuery);
+                              }}
+                              menuContext="default"
+                            />
+                          );
+                        })}
                       </ul>
                     </Section>
                   )}
                   {(activeFilter === 'All' || activeFilter === 'Albums') && matchedAlbums.length > 0 && (
                     <Section title="Albums">
-                      {matchedAlbums.map((a) => <AlbumRow key={a.id} album={a} onResultClick={onResultClick} />)}
+                      {matchedAlbums.map((a) => (
+                        <AlbumRow
+                          key={a.id}
+                          album={a}
+                          onResultClick={onResultClickFor(buildAlbumEntity(a))}
+                        />
+                      ))}
                     </Section>
                   )}
                   {(activeFilter === 'All' || activeFilter === 'Artists') && matchedArtists.length > 0 && (
                     <Section title="Artists">
-                      {matchedArtists.map((a) => <ArtistRow key={a.id} artist={a} onResultClick={onResultClick} />)}
+                      {matchedArtists.map((a) => (
+                        <ArtistRow
+                          key={a.id}
+                          artist={a}
+                          onResultClick={onResultClickFor(buildArtistEntity(a))}
+                        />
+                      ))}
+                    </Section>
+                  )}
+                  {(activeFilter === 'All' || activeFilter === 'Playlists') && playlistResults.length > 0 && (
+                    <Section title="Playlists">
+                      {playlistResults.map((p) => (
+                        <PlaylistResultRow
+                          key={p.id}
+                          result={p}
+                          onResultClick={() => clearSearch()}
+                        />
+                      ))}
                     </Section>
                   )}
                 </>

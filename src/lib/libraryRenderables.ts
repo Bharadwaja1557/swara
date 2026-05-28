@@ -107,16 +107,22 @@ function fromArtist(artist: Artist, addedAt: number): LibraryRenderable {
  * the correct cover (uploaded → preset → collage → single → placeholder)
  * using the canonical resolvePlaylistArtwork() logic.
  * imageUrl is NOT set here — PlaylistArtwork reads trackMap itself.
+ *
+ * Subtitle: saved playlists show "by {creator}" to distinguish them from
+ * owned playlists in the library list/grid view.
  */
 function fromPlaylist(playlist: Playlist): LibraryRenderable {
   const count = playlist.trackCount;
+  const subtitle = playlist.isSaved && playlist.creatorUsername
+    ? `by ${playlist.creatorUsername}`
+    : `${count} ${count === 1 ? 'track' : 'tracks'}`;
   return {
     key:              `playlist-${playlist.id}`,
     type:             'playlist',
     id:               playlist.id,
     route:            `/playlist/${playlist.id}`,
     title:            playlist.title,
-    subtitle:         `${count} ${count === 1 ? 'track' : 'tracks'}`,
+    subtitle,
     coverShape:       'square',
     playlistFallback: true,
     playlist:         playlist,
