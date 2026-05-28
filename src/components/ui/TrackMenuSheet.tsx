@@ -34,6 +34,9 @@ import type { Track }      from '@/types/music';
 
 export type TrackMenuContext = 'default' | 'player' | 'queue' | 'liked' | 'playlist';
 
+// Fallback artwork for when track has no coverUrl
+const MENU_PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
+
 interface TrackMenuSheetProps {
   track:       Track;
   isOpen:      boolean;
@@ -200,10 +203,24 @@ export const TrackMenuSheet = ({
   return (
     <>
       <BottomSheet isOpen={isOpen} onClose={onClose}>
-        {/* Track header */}
-        <div className="px-5 pt-1 pb-3 border-b border-swara-border">
-          <p className="text-[0.95rem] font-semibold text-swara-text truncate">{track.title}</p>
-          <p className="text-[0.78rem] text-swara-muted mt-0.5 truncate">{track.album}</p>
+        {/* Track header — compact artwork + title/album */}
+        <div className="px-5 pt-1 pb-3 border-b border-swara-border flex items-center gap-3">
+          {/* Compact cover — matches text block height, no visual weight */}
+          <div className="flex-shrink-0 w-10 h-10 rounded-lg overflow-hidden bg-swara-elevated">
+            <img
+              src={track.coverUrl || MENU_PH}
+              alt=""
+              aria-hidden="true"
+              className="w-full h-full object-cover"
+              loading="lazy"
+              onError={(e) => { (e.target as HTMLImageElement).src = MENU_PH; }}
+            />
+          </div>
+          {/* Text */}
+          <div className="flex-1 min-w-0">
+            <p className="text-[0.95rem] font-semibold text-swara-text truncate">{track.title}</p>
+            <p className="text-[0.78rem] text-swara-muted mt-0.5 truncate">{track.album}</p>
+          </div>
         </div>
 
         {/* Actions */}

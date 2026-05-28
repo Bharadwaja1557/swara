@@ -7,9 +7,11 @@
  * - Matches Swara dark aesthetic exactly
  */
 import { useState, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@/store/useAuthStore';
 
 const LoginModal = () => {
+  const navigate  = useNavigate();
   const login     = useAuthStore((s) => s.login);
   const isLoading = useAuthStore((s) => s.isLoading);
 
@@ -24,8 +26,9 @@ const LoginModal = () => {
     setError('');
     try {
       await login(username, password);
-      // On success, useAuthStore sets isAuthenticated=true.
-      // AppLayout re-renders and hides this modal automatically.
+      // Navigate to home — ensures a clean landing page after every sign-in.
+      // AppLayout re-renders (isAuthenticated → true) and shows the app.
+      navigate('/', { replace: true });
     } catch {
       setError('Invalid username or password.');
     }

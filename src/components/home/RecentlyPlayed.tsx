@@ -1,8 +1,17 @@
 /**
- * RecentlyPlayed — shows recently played songs (deduped by album).
- * Exactly 3 fully visible cards on screen.
+ * RecentlyPlayed — recently played songs, deduped by album.
+ *
+ * LAYOUT REDESIGN:
+ *   Replaced vertical scroll-card layout with a responsive tile grid.
+ *   Each tile: [small square artwork] [song title + artist text]
+ *   Artwork height is constrained to NOT exceed the text block height —
+ *   keeping tiles compact and premium.
+ *
+ *   Mobile:  2 columns × 3 rows = exactly 6 items
+ *   Desktop: 4 columns × 3 rows = 12 items (lg breakpoint)
+ *
+ * Deduplication logic (by albumId, max 1 song per album) is UNCHANGED.
  */
-import { useRef, useLayoutEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayerStore } from '@/store/playerStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -11,9 +20,9 @@ import type { Track } from '@/types/music';
 
 const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><rect width="100" height="100" fill="%2320202A"/><text x="50" y="60" font-size="36" text-anchor="middle" fill="%233E3D3A">♪</text></svg>';
 
-interface RecentCardProps { track: Track; albumId: string; }
+interface RecentTileProps { track: Track; albumId: string; }
 
-const RecentCard = ({ track, albumId }: RecentCardProps) => {
+const RecentTile = ({ track, albumId }: RecentTileProps) => {
   const navigate  = useNavigate();
   const { albums, loadAlbumTracks } = useLibraryStore();
 
@@ -27,17 +36,15 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
   };
 
   return (
-    /* Card width via class so lg: breakpoint can properly override.
-       Inline style was fighting max-width on desktop (inline > class specificity),
-       keeping cards at 100vw-based width and causing subtle overflow → ugly scrollbar. */
     <button
       type="button"
       onClick={() => navigate(`/album/${albumId}`)}
-      className="flex-shrink-0 flex flex-col text-left active:scale-[0.95] transition-transform duration-150 group [width:calc((100vw_-_52px)/3)] lg:w-[148px]"
+      className="flex items-center gap-2.5 w-full rounded-xl bg-swara-card hover:bg-swara-elevated active:scale-[0.97] transition-all duration-150 overflow-hidden group text-left"
       aria-label={`Open ${track.album}`}
     >
-      <div className="relative w-full rounded-xl overflow-hidden bg-swara-elevated"
-        style={{ aspectRatio: '1/1' }}>
+      {/* Artwork — square, fixed 44px (≈ 2-line text block height).
+          Constrained so it never towers over the adjacent text. */}
+      <div className="relative flex-shrink-0 w-11 h-11 overflow-hidden rounded-l-xl bg-swara-elevated">
         <img
           src={track.coverUrl || PH}
           alt={track.album}
@@ -45,20 +52,26 @@ const RecentCard = ({ track, albumId }: RecentCardProps) => {
           loading="lazy"
           onError={(e) => { (e.target as HTMLImageElement).src = PH; }}
         />
-        {/* Play overlay */}
+        {/* Play overlay on hover */}
         <div
-          className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/40 transition-colors duration-200"
+          className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/50 transition-colors duration-150"
           onClick={handlePlay}
+          role="button"
+          aria-label={`Play ${track.title}`}
         >
-          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 w-8 h-8 rounded-full bg-swara-accent flex items-center justify-center">
-            <svg viewBox="0 0 16 16" width="11" height="11" fill="#0a0a0a" aria-hidden="true">
-              <path d="M5 3.5l8 4.5-8 4.5V3.5Z"/>
+          <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-150 w-5 h-5 rounded-full bg-swara-accent flex items-center justify-center flex-shrink-0">
+            <svg viewBox="0 0 16 16" width="8" height="8" fill="#0a0a0a" aria-hidden="true">
+              <path d="M4 3l9 5-9 5V3Z"/>
             </svg>
           </div>
         </div>
       </div>
-      <p className="text-[0.75rem] font-medium text-swara-text mt-2 truncate w-full">{track.title}</p>
-      <p className="text-[0.68rem] text-swara-muted truncate w-full">{track.artist}</p>
+
+      {/* Text block */}
+      <div className="flex-1 min-w-0 pr-2 py-1.5">
+        <p className="text-[0.78rem] font-semibold text-swara-text truncate leading-tight">{track.title}</p>
+        <p className="text-[0.68rem] text-swara-muted truncate mt-0.5 leading-tight">{track.artist}</p>
+      </div>
     </button>
   );
 };
@@ -67,32 +80,8 @@ const RecentlyPlayed = () => {
   const { tracks } = useLibraryStore();
   const recentSongs = usePlayerStore((s) => s.recentSongs);
 
-  // ── Scroll-to-left fix ───────────────────────────────────────────────────────
-  // Root cause: browsers (Chrome, Safari) persist scrollLeft of overflow
-  // containers as part of native scroll restoration. This fires AFTER paint,
-  // so a plain useEffect(scrollLeft=0) loses the race.
-  //
-  // Fix: useLayoutEffect fires synchronously after DOM mutations, before paint.
-  // A nested requestAnimationFrame then catches any second-pass layout the
-  // browser performs once images begin loading (which can nudge scrollLeft again).
-  // The double-rAF is the minimal reliable guard against both timing windows.
-  const scrollRef = useRef<HTMLDivElement>(null);
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // Immediate reset (catches most cases)
-    el.scrollLeft = 0;
-    // rAF: catches post-layout scroll restoration triggered by image dimension calc
-    const raf1 = requestAnimationFrame(() => {
-      el.scrollLeft = 0;
-      // Second frame: catches any deferred browser scroll-restoration pass
-      const raf2 = requestAnimationFrame(() => { el.scrollLeft = 0; });
-      return () => cancelAnimationFrame(raf2);
-    });
-    return () => cancelAnimationFrame(raf1);
-  }, []); // run once on mount — recentSongs is seeded synchronously from localStorage
-
-  // Resolve entries → track objects, deduped by albumId (keep most recent)
+  // ── Deduplication — UNCHANGED ─────────────────────────────────────────────
+  // Keep most-recent entry per albumId. Max 12 for desktop (4 col × 3 row).
   const seen = new Set<string>();
   const recentTracks: Array<{ track: Track; albumId: string }> = [];
 
@@ -101,38 +90,46 @@ const RecentlyPlayed = () => {
     seen.add(entry.albumId);
     const track = tracks.find((t) => t.id === entry.trackId);
     if (track) recentTracks.push({ track, albumId: entry.albumId });
-    if (recentTracks.length >= 10) break;
+    if (recentTracks.length >= 12) break;
   }
 
   if (!recentTracks.length) return null;
 
-  return (
-    <section className="pt-5 pb-2" aria-labelledby="recents-heading">
-      <div className="flex items-center justify-between px-5 mb-3">
-        <h2 id="recents-heading"
-          className="text-[0.8125rem] font-semibold text-swara-muted tracking-widest uppercase">
-          Recently Played
-        </h2>
-      </div>
+  // Mobile shows 6 (2×3), desktop shows 12 (4×3)
+  const mobileTiles  = recentTracks.slice(0, 6);
+  const desktopTiles = recentTracks.slice(0, 12);
 
-      {/* Spacer-based padding: more reliable than px-5 on overflow-x-auto containers.
-          On some browsers/platforms, padding-left of a scroll container is collapsed
-          or scrolled over. A real flex child can't be skipped. */}
+  return (
+    <section className="pt-5 pb-2 px-4" aria-labelledby="recents-heading">
+      <h2
+        id="recents-heading"
+        className="text-[0.8125rem] font-semibold text-swara-muted tracking-widest uppercase mb-3"
+      >
+        Recently Played
+      </h2>
+
+      {/* Mobile grid: 2 col × 3 row, max 6 tiles */}
       <div
-        ref={scrollRef}
-        className="flex gap-3 overflow-x-auto scrollbar-none pb-1"
-        style={{ scrollSnapType: 'x mandatory', scrollPaddingLeft: '20px', WebkitOverflowScrolling: 'touch' }}
+        className="grid grid-cols-2 gap-2 lg:hidden"
         role="list"
       >
-        {/* Leading spacer — guarantees left breathing room regardless of browser */}
-        <div className="flex-shrink-0 w-5" aria-hidden="true" />
-        {recentTracks.map(({ track, albumId }) => (
-          <div key={albumId} role="listitem" style={{ scrollSnapAlign: 'start' }}>
-            <RecentCard track={track} albumId={albumId} />
+        {mobileTiles.map(({ track, albumId }) => (
+          <div key={albumId} role="listitem">
+            <RecentTile track={track} albumId={albumId} />
           </div>
         ))}
-        {/* Trailing spacer — mirrors leading gap at scroll end */}
-        <div className="flex-shrink-0 w-5" aria-hidden="true" />
+      </div>
+
+      {/* Desktop grid: 4 col × 3 row, max 12 tiles */}
+      <div
+        className="hidden lg:grid lg:grid-cols-4 gap-2"
+        role="list"
+      >
+        {desktopTiles.map(({ track, albumId }) => (
+          <div key={albumId} role="listitem">
+            <RecentTile track={track} albumId={albumId} />
+          </div>
+        ))}
       </div>
     </section>
   );

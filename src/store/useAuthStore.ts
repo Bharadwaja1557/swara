@@ -68,6 +68,14 @@ async function clearUserState(): Promise<void> {
     useProfileStore.getState().clearProfile();
   } catch (e) { console.warn('[Auth] clearUserState: profileStore clear failed', e); }
 
+  try {
+    // Playback: clear queue, recents, and persisted playback state.
+    // Uses the module-level clearSession() which operates directly on the
+    // audio engine (_eng) — safe to call outside React (no hooks).
+    const { clearSession } = await import('@/store/playerStore');
+    clearSession();
+  } catch (e) { console.warn('[Auth] clearUserState: playerStore clearSession failed', e); }
+
   console.log('[Auth] User state cleared ✓');
 }
 

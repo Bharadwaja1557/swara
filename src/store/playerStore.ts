@@ -431,6 +431,35 @@ export function getNextTracks(n = 5): Track[] {
 export function getActiveQueue(): Track[] { return [..._eng.activeQueue]; }
 export function getEngineIdx(): number    { return _eng.idx; }
 
+/**
+ * clearSession — wipes ALL playback state at logout time.
+ * Clears: active queue, original queue, recently played, localStorage keys.
+ * Safe to call outside React (no hooks), used by useAuthStore.clearUserState().
+ */
+export function clearSession(): void {
+  try { getAudio().pause(); } catch {}
+  _eng.activeQueue   = [];
+  _eng.originalQueue = [];
+  _eng.idx           = 0;
+  _eng.queueContext  = null;
+  _queueVersion++;
+  // Wipe persisted playback + recents
+  try { localStorage.removeItem(STORAGE_KEY); } catch {}
+  try { localStorage.removeItem(RECENTS_KEY); } catch {}
+  // Sync Zustand state
+  _sync?.({
+    currentTrack: null,
+    currentIndex: 0,
+    isPlaying:    false,
+    progress:     0,
+    duration:     0,
+    queueContext: null,
+    queueLength:  0,
+    queueVersion: _queueVersion,
+    recentSongs:  [],
+  });
+}
+
 // ─── Zustand state ────────────────────────────────────────────────────────────
 
 export interface PlayerReactState {
