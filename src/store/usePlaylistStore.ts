@@ -139,6 +139,15 @@ interface PlaylistState {
   // ── Cloud sync ────────────────────────────────────────────────────────────
   syncFromCloud: () => Promise<void>;
 
+  /**
+   * Upsert a playlist into the local store.
+   * Used by SearchPage when a user clicks a search-result playlist so that
+   * PlaylistPage can immediately resolve it via getPlaylist(id) without a
+   * redundant round-trip.  Also used during syncFromCloud to merge updates.
+   * Does NOT write to Supabase — purely a local store operation.
+   */
+  upsertPlaylist: (playlist: Playlist) => void;
+
   // ── Shared playlist: save / unsave ────────────────────────────────────────
   /**
    * Save a public playlist owned by another user.
@@ -391,14 +400,36 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     const result = await PlaylistRepository.getPlaylist(playlistId);
     if (!result) return [];
 
-    // Merge trackIds into local state for queue building
-    const playlists = get().playlists.map((p) =>
-      p.id !== playlistId ? p : { ...p, trackIds: result.trackIds, trackCount: result.entries.length }
-    );
+    // Destructure entries out so we don't spread it into the Playlist shape
+    const { entries, ...playlistData } = result;
+
+    const existingIdx = get().playlists.findIndex((p) => p.id === playlistId);
+    let playlists: Playlist[];
+
+    if (existingIdx >= 0) {
+      // Update in-place: take all cloud metadata (including creator fields) but
+      // preserve local-only fields (lastPlayedAt, lastInteractedAt) if set.
+      playlists = get().playlists.map((p) =>
+        p.id !== playlistId
+          ? p
+          : {
+              ...playlistData,
+              // Preserve local-only timestamps
+              lastPlayedAt:     p.lastPlayedAt     ?? playlistData.lastPlayedAt,
+              lastInteractedAt: p.lastInteractedAt ?? playlistData.lastInteractedAt,
+            }
+      );
+    } else {
+      // Not in store — this is a public/shared playlist opened from search or a
+      // direct link. Add it so PlaylistPage can resolve it via getPlaylist(id).
+      console.log('[Playlists] loadPlaylistTracks: playlist not in store, adding:', playlistId);
+      playlists = [playlistData, ...get().playlists];
+    }
+
     writeCache(playlists);
     set({ playlists });
 
-    return result.entries;
+    return entries;
   },
 
   // ── Playback event hook ────────────────────────────────────────────────────
@@ -473,6 +504,22 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
     clearCache();
     set({ playlists: [], isSyncing: false, hydrated: false });
     console.log('[Playlists] reset on logout ✓');
+  },
+
+  // ── Upsert (used by search result navigation) ─────────────────────────────
+
+  upsertPlaylist: (playlist) => {
+    const existingIdx = get().playlists.findIndex((p) => p.id === playlist.id);
+    let playlists: Playlist[];
+    if (existingIdx >= 0) {
+      playlists = get().playlists.map((p) =>
+        p.id !== playlist.id ? p : { ...p, ...playlist }
+      );
+    } else {
+      playlists = [playlist, ...get().playlists];
+    }
+    writeCache(playlists);
+    set({ playlists });
   },
 
   // ── Save / unsave ─────────────────────────────────────────────────────────

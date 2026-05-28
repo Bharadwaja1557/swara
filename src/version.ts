@@ -15,12 +15,13 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 8.0
+ * CURRENT: 8.1
  *   8.x = Search + Playlist architecture
- *   .0  = Entity-based search history, browse layout refinement,
- *         playlist search results, shared playlist architecture
- *         (reference-model saves, creator attribution, save/unsave)
+ *   .1  = Root-cause fix: full Playlist objects from searchPlaylists,
+ *         getPlaylist enriched with creator/ownership fields,
+ *         loadPlaylistTracks upserts missing playlists into store,
+ *         upsertPlaylist store method, realtime covers saved playlists
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '8.0';
+export const APP_VERSION = '8.1';

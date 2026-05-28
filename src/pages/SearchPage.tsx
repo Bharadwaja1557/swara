@@ -31,7 +31,7 @@ import { useDesktopSearchStore }        from '@/store/useDesktopSearchStore';
 import { useIsDesktop }                 from '@/hooks/useIsDesktop';
 import { trackActions }                 from '@/lib/trackActions';
 import { PlaylistRepository }           from '@/repositories/playlists/PlaylistRepository';
-import type { PlaylistSearchResult }    from '@/repositories/playlists/PlaylistRepository';
+import { usePlaylistStore }             from '@/store/usePlaylistStore';
 import { PlaylistArtwork }              from '@/features/artwork';
 import SongRow                          from '@/components/ui/SongRow';
 import type { Album, Artist }           from '@/types/music';
@@ -88,27 +88,28 @@ const ArtistRow = ({ artist, onResultClick }: { artist: Artist; onResultClick?: 
   );
 };
 
-const PlaylistResultRow = ({ result, onResultClick }: { result: PlaylistSearchResult; onResultClick?: () => void }) => {
-  const navigate = useNavigate();
-  // Construct minimal Playlist for PlaylistArtwork (no trackIds → shows preset or placeholder)
-  const minimalPlaylist: Playlist = {
-    id: result.id, title: result.title, isPublic: result.isPublic,
-    trackCount: result.trackCount, createdAt: '', updatedAt: '', trackIds: [],
-    coverImageUrl: result.coverUrl, coverId: result.coverId,
-    creatorUsername: result.creatorUsername, isOwned: result.isOwned, isSaved: result.isSaved,
+const PlaylistResultRow = ({ playlist, onResultClick }: { playlist: Playlist; onResultClick?: () => void }) => {
+  const navigate     = useNavigate();
+  // Upsert the full playlist object into the store so PlaylistPage resolves
+  // immediately when navigated to — no redundant cloud round-trip needed.
+  const upsertPlaylist = usePlaylistStore((s) => s.upsertPlaylist);
+  const handleClick = () => {
+    upsertPlaylist(playlist);
+    onResultClick?.();
+    navigate(`/playlist/${playlist.id}`);
   };
   return (
-    <button type="button" onClick={() => { onResultClick?.(); navigate(`/playlist/${result.id}`); }}
+    <button type="button" onClick={handleClick}
       className="flex items-center gap-3 w-full py-2.5 px-3 rounded-xl hover:bg-swara-card active:scale-[0.98] transition-all duration-150 text-left">
       <div className="w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 bg-swara-elevated">
-        <PlaylistArtwork playlist={minimalPlaylist} size={44} className="w-11 h-11 rounded-xl" />
+        <PlaylistArtwork playlist={playlist} size={44} className="w-11 h-11 rounded-xl" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-[0.88rem] font-medium text-swara-text truncate">{result.title}</p>
+        <p className="text-[0.88rem] font-medium text-swara-text truncate">{playlist.title}</p>
         <p className="text-[0.72rem] text-swara-muted truncate">
-          by {result.creatorUsername}
-          {result.trackCount > 0 && ` · ${result.trackCount} track${result.trackCount !== 1 ? 's' : ''}`}
-          {result.isSaved && <span className="ml-1 text-swara-accent">· Saved</span>}
+          by {playlist.creatorUsername}
+          {playlist.trackCount > 0 && ` · ${playlist.trackCount} track${playlist.trackCount !== 1 ? 's' : ''}`}
+          {playlist.isSaved && <span className="ml-1 text-swara-accent">· Saved</span>}
         </p>
       </div>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">
@@ -253,7 +254,7 @@ const SearchPage = () => {
   const [albumSort,      setAlbumSort]      = useState<AlbumSort>('A-Z');
   const [albumView,      setAlbumView]      = useState<AlbumView>('grid');
   const [yearOrder,      setYearOrder]      = useState<YearOrder>('latest');
-  const [playlistResults, setPlaylistResults] = useState<PlaylistSearchResult[]>([]);
+  const [playlistResults, setPlaylistResults] = useState<Playlist[]>([]);
   const [plSearching,    setPlSearching]    = useState(false);
 
   const isDesktop  = useIsDesktop();
@@ -721,7 +722,7 @@ const SearchPage = () => {
                       {playlistResults.map((p) => (
                         <PlaylistResultRow
                           key={p.id}
-                          result={p}
+                          playlist={p}
                           onResultClick={() => clearSearch()}
                         />
                       ))}

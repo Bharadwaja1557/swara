@@ -76,14 +76,19 @@ export function startRealtimeSync(userId: string): void {
     .channel(`playlist-sync-${userId}`)
 
     // ── playlists table ────────────────────────────────────────────────
-    // Filter to this user's rows directly (user_id column exists on playlists).
+    // No user_id filter here — we need updates for ALL playlists accessible
+    // to this user, including saved/public playlists owned by others.
+    // RLS on the playlists table limits what rows Supabase Realtime delivers
+    // to the client anyway (only own + public rows come through).
+    // triggerSync() calls syncFromCloud() which fetches own + saved playlists,
+    // so any creator edit (rename, reorder, cover change) propagates to savers.
     .on(
       'postgres_changes',
       {
         event:  '*',          // INSERT, UPDATE, DELETE
         schema: 'public',
         table:  'playlists',
-        filter: `user_id=eq.${userId}`,
+        // No filter — RLS handles which rows are delivered
       },
       (payload) => {
         console.log('[Realtime] playlists change:', payload.eventType,

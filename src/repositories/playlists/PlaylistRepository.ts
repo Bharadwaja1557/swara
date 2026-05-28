@@ -171,16 +171,21 @@ export const PlaylistRepository = {
 
   /**
    * Fetch a single playlist with its full ordered track list.
+   *
+   * FIXED: now selects user_id and resolves creator username, isOwned, and
+   * isSaved — returning a COMPLETE Playlist, not a stub.
+   * Works for own playlists, saved playlists, and public playlists from search.
    */
   async getPlaylist(playlistId: string): Promise<(Playlist & { entries: PlaylistTrackEntry[] }) | null> {
     console.log('[PlaylistRepo] getPlaylist:', playlistId);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { console.warn('[PlaylistRepo] getPlaylist: not authenticated'); return null; }
 
+    // Batch 1: playlist row + track entries (independent)
     const [playlistRes, tracksRes] = await Promise.all([
       supabase
         .from('playlists')
-        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at')
+        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
         .eq('id', playlistId)
         .single(),
       supabase
@@ -199,11 +204,29 @@ export const PlaylistRepository = {
       return null;
     }
 
-    const playlist = rowToPlaylist(playlistRes.data as PlaylistRow);
-    const entries  = (tracksRes.data ?? []).map(rowToTrackEntry);
-    playlist.trackIds = entries.map((e) => e.trackId);
+    const row     = playlistRes.data as PlaylistRow;
+    const entries = (tracksRes.data ?? []).map(rowToTrackEntry);
 
-    console.log('[PlaylistRepo] getPlaylist: found', playlist.title, '|', entries.length, 'tracks');
+    // Batch 2: creator profile + saved status (need row.user_id from batch 1)
+    const [profileRes, savedRes] = await Promise.all([
+      supabase.from('profiles').select('username').eq('id', row.user_id).single(),
+      supabase.from('playlist_saves').select('playlist_id').eq('playlist_id', playlistId).limit(1),
+    ]);
+
+    const creatorUsername = (profileRes.data as { username: string } | null)?.username
+      ?? row.user_id.slice(0, 8);
+    const isSaved = !!(savedRes.data && savedRes.data.length > 0 && row.user_id !== user.id);
+
+    const playlist: Playlist = {
+      ...rowToPlaylist(row),
+      trackIds:        entries.map((e) => e.trackId),
+      creatorUserId:   row.user_id,
+      creatorUsername,
+      isOwned:         row.user_id === user.id,
+      isSaved,
+    };
+
+    console.log('[PlaylistRepo] getPlaylist:', playlist.title, '|', entries.length, 'tracks | owned:', playlist.isOwned);
     return { ...playlist, entries };
   },
 
@@ -499,26 +522,30 @@ export const PlaylistRepository = {
   /**
    * Search playlists by title for the search results page.
    *
-   * Returns:
+   * Returns FULL Playlist objects (not a partial type):
    *   1. Current user's own playlists (public + private) matching the query
    *   2. Other users' public playlists matching the query (RLS-gated)
-   *   3. Does NOT include private playlists from other users
+   *   Private playlists from other users are excluded at the DB layer.
    *
-   * The RLS policy `user_id = auth.uid() OR is_public = true` means the
-   * ILIKE query automatically returns the correct union without extra filters.
+   * Fully equivalent to the objects produced by getAllPlaylists():
+   *   - All metadata fields including description, created_at, updated_at
+   *   - trackIds[] for PlaylistArtwork collage generation
+   *   - creatorUsername resolved via batch profile lookup (never 'unknown')
+   *   - isOwned / isSaved / creatorUserId for PlaylistPage rendering
    *
-   * Creator usernames are resolved via a separate batch profiles query.
-   * isSaved is resolved by checking playlist_saves for the current user.
+   * Returning full Playlist objects means search results can be upserted
+   * directly into usePlaylistStore, making PlaylistPage resolve immediately
+   * without a redundant cloud round-trip.
    */
-  async searchPlaylists(q: string): Promise<PlaylistSearchResult[]> {
+  async searchPlaylists(q: string): Promise<Playlist[]> {
     console.log('[PlaylistRepo] searchPlaylists:', q);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user || !q.trim()) return [];
 
-    // RLS handles privacy: returns own (all) + others' public only
+    // Q1: matching playlists — RLS returns own (all) + others' public only
     const { data, error } = await supabase
       .from('playlists')
-      .select('id, title, cover_url, cover_id, is_public, track_count, user_id, updated_at')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
       .ilike('title', `%${q.trim()}%`)
       .order('updated_at', { ascending: false })
       .limit(20);
@@ -529,45 +556,56 @@ export const PlaylistRepository = {
     }
     if (!data || data.length === 0) return [];
 
-    // Batch-resolve creator usernames
-    const uniqueUserIds = [...new Set((data as PlaylistRow[]).map((r) => r.user_id))];
-    const { data: profileRows } = await supabase
-      .from('profiles')
-      .select('id, username')
-      .in('id', uniqueUserIds);
-    const profileMap = new Map((profileRows ?? []).map((p: { id: string; username: string }) => [p.id, p.username]));
+    const rows = data as PlaylistRow[];
+    const playlistIds   = rows.map((r) => r.id);
+    const uniqueUserIds = [...new Set(rows.map((r) => r.user_id))];
 
-    // Check which of these the user has saved
-    const { data: savedRows } = await supabase
-      .from('playlist_saves')
-      .select('playlist_id')
-      .in('playlist_id', (data as PlaylistRow[]).map((r) => r.id));
-    const savedIdSet = new Set((savedRows ?? []).map((r: { playlist_id: string }) => r.playlist_id));
+    // Q2–Q4: trackIds + creator profiles + saved status (all in parallel)
+    const [trackRows, profileRows, savedRows] = await Promise.all([
+      // Q2: batch trackIds for artwork collage
+      supabase
+        .from('playlist_tracks')
+        .select('playlist_id, track_id')
+        .in('playlist_id', playlistIds)
+        .order('playlist_id', { ascending: true })
+        .order('position',    { ascending: true }),
+      // Q3: batch creator usernames
+      supabase
+        .from('profiles')
+        .select('id, username')
+        .in('id', uniqueUserIds),
+      // Q4: which of these has the current user saved?
+      supabase
+        .from('playlist_saves')
+        .select('playlist_id')
+        .in('playlist_id', playlistIds),
+    ]);
 
-    return (data as PlaylistRow[]).map((r) => ({
-      id:              r.id,
-      title:           r.title,
-      coverUrl:        r.cover_url ?? undefined,
-      coverId:         r.cover_id  ?? undefined,
-      trackCount:      r.track_count,
-      isPublic:        r.is_public,
-      creatorUsername: profileMap.get(r.user_id) ?? 'unknown',
+    // Build trackMap: playlistId → ordered trackId[]
+    const trackMap = new Map<string, string[]>();
+    for (const tr of ((trackRows.data ?? []) as { playlist_id: string; track_id: string }[])) {
+      const list = trackMap.get(tr.playlist_id) ?? [];
+      list.push(tr.track_id);
+      trackMap.set(tr.playlist_id, list);
+    }
+
+    // Build profileMap: userId → username
+    const profileMap = new Map(
+      ((profileRows.data ?? []) as { id: string; username: string }[]).map((p) => [p.id, p.username])
+    );
+
+    const savedIdSet = new Set(
+      ((savedRows.data ?? []) as { playlist_id: string }[]).map((r) => r.playlist_id)
+    );
+
+    return rows.map((r) => ({
+      ...rowToPlaylist(r),
+      trackIds:        trackMap.get(r.id) ?? [],
+      creatorUserId:   r.user_id,
+      // Fall back to first 8 chars of UUID only if profile genuinely missing from DB
+      creatorUsername: profileMap.get(r.user_id) ?? r.user_id.slice(0, 8),
       isOwned:         r.user_id === user.id,
-      isSaved:         savedIdSet.has(r.id),
+      isSaved:         !!(r.user_id !== user.id && savedIdSet.has(r.id)),
     }));
   },
 };
-
-// ── Exported types ────────────────────────────────────────────────────────────
-
-export interface PlaylistSearchResult {
-  id:              string;
-  title:           string;
-  coverUrl?:       string;
-  coverId?:        string;
-  trackCount:      number;
-  isPublic:        boolean;
-  creatorUsername: string;
-  isOwned:         boolean;
-  isSaved:         boolean;
-}
