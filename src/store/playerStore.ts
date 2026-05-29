@@ -47,6 +47,7 @@ import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
 import { STORAGE_KEY } from '@/lib/persistence/versions';
 import type { SchemaV3 } from '@/lib/persistence/versions';
 import { canBrowserPlay }                          from '@/features/media/canBrowserPlay';
+import { schedulePreload, clearPreloader }          from '@/lib/audioPreloader';
 import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
 import { mediaLogger }                              from '@/features/media/mediaLogger';
 
@@ -146,6 +147,10 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
       queueVersion:  ++_queueVersion,
     });
 
+    _updateMediaSession(track);
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.playbackState = 'paused'; } catch {}
+    }
     console.log(`[Playback] Restored: "${track.title}" (${idx + 1}/${activeQueue.length}) — paused`);
   } catch (err) {
     console.error('[Playback] restorePlaybackState error:', err);
@@ -372,22 +377,59 @@ function _loadAndPlay(track: Track) {
   _pushRecent(track.albumId, track.id);
   _sync?.({ recentSongs: _loadRecents() });
   _savePlayback();
+  // Schedule preloading of the next track in the queue
+  _scheduleNextPreload();
 }
 
 function _updateMediaSession(track: Track) {
+  // Guard: API not available (pre-Chromium Edge, some WebViews, all Desktop Firefox < 82)
   if (!('mediaSession' in navigator)) return;
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: track.title, artist: track.artist, album: track.album,
-    artwork: track.coverUrl ? [{ src: track.coverUrl, sizes: '512x512', type: 'image/webp' }] : [],
-  });
-  navigator.mediaSession.setActionHandler('play',          () => { getAudio().play().catch(() => {}); });
-  navigator.mediaSession.setActionHandler('pause',         () => { getAudio().pause(); });
-  navigator.mediaSession.setActionHandler('nexttrack',     () => _advanceNext());
-  navigator.mediaSession.setActionHandler('previoustrack', () => _advancePrev());
-  navigator.mediaSession.setActionHandler('seekto', (d) => {
-    const a = getAudio();
-    if (d.seekTime !== undefined && a.duration) a.currentTime = d.seekTime;
-  });
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:   track.title,
+      artist:  track.artist,
+      album:   track.album,
+      // Provide multiple sizes so the OS picks the best fit.
+      // Type is image/jpeg as a safe fallback — most cover images are JPEG.
+      // Browsers that support webp will use the same URL; no separate asset needed.
+      artwork: track.coverUrl
+        ? [
+            { src: track.coverUrl, sizes: '96x96',   type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '256x256',  type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '512x512',  type: 'image/jpeg' },
+          ]
+        : [],
+    });
+
+    // Transport controls — shown on lock screen / notification shade
+    navigator.mediaSession.setActionHandler('play',  () => { getAudio().play().catch(() => {}); });
+    navigator.mediaSession.setActionHandler('pause', () => { getAudio().pause(); });
+    navigator.mediaSession.setActionHandler('nexttrack',     () => _advanceNext());
+    navigator.mediaSession.setActionHandler('previoustrack', () => _advancePrev());
+
+    // seekto: used by Android's media notification scrubber + macOS Now Playing
+    navigator.mediaSession.setActionHandler('seekto', (d) => {
+      const a = getAudio();
+      if (d.seekTime !== undefined && isFinite(a.duration) && a.duration > 0) {
+        a.currentTime = d.seekTime;
+      }
+    });
+
+    // seekbackward/seekforward: iOS lock screen 15-second skip buttons
+    // (iOS does not expose nexttrack/previoustrack on lock screen without these)
+    navigator.mediaSession.setActionHandler('seekbackward', (d) => {
+      const a = getAudio();
+      a.currentTime = Math.max(0, a.currentTime - (d.seekOffset ?? 10));
+    });
+    navigator.mediaSession.setActionHandler('seekforward', (d) => {
+      const a = getAudio();
+      if (isFinite(a.duration)) {
+        a.currentTime = Math.min(a.duration, a.currentTime + (d.seekOffset ?? 10));
+      }
+    });
+  } catch {
+    // MediaSession API exists but threw (some sandboxed WebViews) — ignore silently
+  }
 }
 
 function _advanceNext() {
@@ -407,6 +449,28 @@ function _advancePrev() {
   const prevIdx = idx > 0 ? idx - 1 : activeQueue.length - 1;
   _eng.idx = prevIdx;
   _loadAndPlay(activeQueue[prevIdx]);
+}
+
+/**
+ * Determine the URL of the next effective track and schedule preloading.
+ * Respects queue order, repeat mode (all/one/off), and queue length.
+ * Called after every queue mutation and after each track change.
+ */
+function _scheduleNextPreload(): void {
+  const { activeQueue, idx, repeat } = _eng;
+  if (activeQueue.length === 0) { schedulePreload(null); return; }
+
+  let nextIdx: number | null = null;
+  if (repeat === 'one') {
+    // Same track will repeat — preload it (it might already be buffered, idempotent)
+    nextIdx = idx;
+  } else if (idx < activeQueue.length - 1) {
+    nextIdx = idx + 1;
+  } else if (repeat === 'all') {
+    nextIdx = 0;
+  }
+
+  schedulePreload(nextIdx !== null ? activeQueue[nextIdx].streamUrl : null);
 }
 
 // ─── Recents ─────────────────────────────────────────────────────────────────
@@ -438,6 +502,7 @@ export function getEngineIdx(): number    { return _eng.idx; }
  */
 export function clearSession(): void {
   try { getAudio().pause(); } catch {}
+  clearPreloader(); // abort any buffering in progress
   _eng.activeQueue   = [];
   _eng.originalQueue = [];
   _eng.idx           = 0;
@@ -585,6 +650,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _eng.originalQueue = [..._eng.originalQueue, track];
       set({ queueLength: _eng.activeQueue.length, queueVersion: ++_queueVersion });
       _savePlayback();
+      _scheduleNextPreload();
     },
 
     // ── insertAfterCurrent ────────────────────────────────────────────────
@@ -727,6 +793,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     // ── clearQueue ────────────────────────────────────────────────────────
     clearQueue: () => {
       getAudio().pause();
+      schedulePreload(null); // abort buffering
       _eng.activeQueue   = [];
       _eng.originalQueue = [];
       _eng.idx           = 0;

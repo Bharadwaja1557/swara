@@ -24,6 +24,7 @@ import { usePlaylistStore }     from '@/store/usePlaylistStore';
 import { useAuthStore }         from '@/store/useAuthStore';
 import { useProfileStore }      from '@/store/useProfileStore';
 import { useThemeStore }        from '@/store/useThemeStore';
+import { useKeyboardControls } from '@/hooks/useKeyboardControls';
 import { useIsDesktop }         from '@/hooks/useIsDesktop';
 import { restorePlaybackState } from '@/store/playerStore';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtimeSync';
@@ -80,6 +81,9 @@ const AppLayout = () => {
   const syncDoneRef = useRef(false);
 
   // ── Step 1: restore auth session ─────────────────────────────────────────
+  // Global keyboard controls — Space/Alt+Arrow/Ctrl+Arrow
+  useKeyboardControls();
+
   useEffect(() => {
     initialize();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
