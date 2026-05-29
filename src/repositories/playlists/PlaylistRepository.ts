@@ -32,6 +32,8 @@ interface PlaylistRow {
   created_at:  string;
   updated_at:  string;
   user_id:     string;          // creator UUID — used for ownership checks
+  soft_deleted: boolean;        // true = hidden everywhere
+  deleted_at:  string | null;
 }
 
 interface PlaylistTrackRow {
@@ -55,6 +57,8 @@ function rowToPlaylist(r: PlaylistRow): Playlist {
     createdAt:      r.created_at,
     updatedAt:      r.updated_at,
     trackIds:       [], // populated separately by getPlaylist
+    softDeleted:    r.soft_deleted ?? false,
+    deletedAt:      r.deleted_at ?? undefined,
   };
 }
 
@@ -100,8 +104,9 @@ export const PlaylistRepository = {
     // ── Q1a: own playlists (all visibility levels) ───────────────────────
     const { data: ownData, error: ownErr } = await supabase
       .from('playlists')
-      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id, soft_deleted, deleted_at')
       .eq('user_id', user.id)
+      .eq('soft_deleted', false)
       .order('updated_at', { ascending: false });
 
     if (ownErr) {
@@ -114,9 +119,10 @@ export const PlaylistRepository = {
     if (savedIds.length > 0) {
       const { data: sd, error: sdErr } = await supabase
         .from('playlists')
-        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id, soft_deleted, deleted_at')
         .in('id', savedIds)
         .neq('user_id', user.id)           // exclude own (already in Q1a)
+        .eq('soft_deleted', false)
         .order('updated_at', { ascending: false });
       if (sdErr) {
         console.error('[PlaylistRepo] getAllPlaylists saved ERROR:', sdErr.message);
@@ -182,8 +188,9 @@ export const PlaylistRepository = {
     const [playlistRes, tracksRes] = await Promise.all([
       supabase
         .from('playlists')
-        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+        .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id, soft_deleted, deleted_at')
         .eq('id', playlistId)
+        .eq('soft_deleted', false)
         .single(),
       supabase
         .from('playlist_tracks')
@@ -542,7 +549,8 @@ export const PlaylistRepository = {
     // Q1: matching playlists — RLS returns own (all) + others' public only
     const { data, error } = await supabase
       .from('playlists')
-      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id')
+      .select('id, title, description, cover_url, cover_id, is_public, track_count, created_at, updated_at, user_id, soft_deleted, deleted_at')
+      .eq('soft_deleted', false)
       .ilike('title', `%${q.trim()}%`)
       .order('updated_at', { ascending: false })
       .limit(20);
@@ -595,5 +603,40 @@ export const PlaylistRepository = {
       isOwned:         r.user_id === user.id,
       isSaved:         !!(r.user_id !== user.id && savedIdSet.has(r.id)),
     }));
+  },
+  /**
+   * Soft-delete a playlist. Sets soft_deleted=true, deleted_at=now().
+   * Hidden from all queries but preserved for analytics and recovery.
+   * RLS allows only the owner to soft-delete their own playlists.
+   */
+  async softDeletePlaylist(playlistId: string): Promise<void> {
+    console.log('[PlaylistRepo] softDeletePlaylist:', playlistId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('playlists')
+      .update({ soft_deleted: true, deleted_at: new Date().toISOString() })
+      .eq('id', playlistId)
+      .eq('user_id', user.id);   // extra safety: RLS also enforces this
+    if (error) console.error('[PlaylistRepo] softDeletePlaylist ERROR:', error.message);
+    else       console.log('[PlaylistRepo] softDeletePlaylist SUCCESS');
+  },
+
+  /**
+   * Permanently delete a playlist (HARD DELETE).
+   * Not exposed in UI yet — available for cleanup tooling only.
+   * CASCADE removes all playlist_tracks and playlist_saves rows.
+   */
+  async permanentlyDeletePlaylist(playlistId: string): Promise<void> {
+    console.log('[PlaylistRepo] permanentlyDeletePlaylist:', playlistId);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { error } = await supabase
+      .from('playlists')
+      .delete()
+      .eq('id', playlistId)
+      .eq('user_id', user.id);
+    if (error) console.error('[PlaylistRepo] permanentlyDeletePlaylist ERROR:', error.message);
+    else       console.log('[PlaylistRepo] permanentlyDeletePlaylist SUCCESS');
   },
 };

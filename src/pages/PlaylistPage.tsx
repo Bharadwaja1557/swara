@@ -49,6 +49,8 @@ import SongRow                from '@/components/ui/SongRow';
 import { PlaylistArtwork }    from '@/features/artwork';
 import PlaylistEditModal      from '@/features/playlists/PlaylistEditModal';
 import FolderPickerSheet      from '@/components/ui/FolderPickerSheet';
+import CreatorLink            from '@/components/ui/CreatorLink';
+import { playlistRoute }      from '@/lib/playlistSlug';
 import ShuffleIcon            from '@/components/ui/ShuffleIcon';
 import type { Track }         from '@/types/music';
 import type { PlaylistTrackEntry } from '@/store/usePlaylistStore';
@@ -119,7 +121,7 @@ const SortableManageRow = ({ entry, track, onDelete }: SortableManageRowProps) =
 // ── PlaylistPage ──────────────────────────────────────────────────────────────
 
 const PlaylistPage = () => {
-  const { id }      = useParams<{ id: string }>();
+  const { id } = useParams<{ id: string; slug?: string }>();
   const navigate    = useNavigate();
   const { trackMap } = useLibraryStore();
   const { getPlaylist, loadPlaylistTracks, removeTrackFromPlaylist, reorderPlaylistTracks,
@@ -162,7 +164,18 @@ const PlaylistPage = () => {
     if (!id) return;
     setLoading(true);
     loadPlaylistTracks(id)
-      .then((fetched) => { setEntries(fetched); })
+      .then((fetched) => {
+        setEntries(fetched);
+        // Normalize slug in URL (cosmetic — id remains canonical)
+        const pl = usePlaylistStore.getState().getPlaylist(id);
+        if (pl) {
+          const canonical = playlistRoute(id, pl.title);
+          const current   = window.location.hash.replace('#', '');
+          if (current !== canonical) {
+            navigate(canonical, { replace: true });
+          }
+        }
+      })
       .finally(() => setLoading(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, loadPlaylistTracks, trackIdsDigest]);
@@ -256,7 +269,7 @@ const PlaylistPage = () => {
             {/* Creator attribution — always shown, subtle */}
             {playlist?.creatorUsername && (
               <p className="text-[0.78rem] text-swara-dim mb-1">
-                by {playlist.creatorUsername}
+                <CreatorLink username={playlist.creatorUsername} className="text-swara-dim text-[0.78rem]" />
               </p>
             )}
             {playlist?.description && (

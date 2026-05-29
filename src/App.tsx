@@ -1,31 +1,35 @@
 import { HashRouter, Routes, Route } from 'react-router-dom';
-import AppLayout      from '@/layouts/AppLayout';
-import HomePage       from '@/pages/HomePage';
-import SearchPage     from '@/pages/SearchPage';
-import LibraryPage    from '@/pages/LibraryPage';
-import AlbumPage      from '@/pages/AlbumPage';
-import ArtistPage     from '@/pages/ArtistPage';
-import ProfilePage    from '@/pages/ProfilePage';
-import LikedSongsPage from '@/pages/LikedSongsPage';
-import QueuePage      from '@/pages/QueuePage';
-import PlaylistPage   from '@/pages/PlaylistPage';
-import FolderPage     from '@/pages/FolderPage';
+import AppLayout        from '@/layouts/AppLayout';
+import HomePage         from '@/pages/HomePage';
+import SearchPage       from '@/pages/SearchPage';
+import LibraryPage      from '@/pages/LibraryPage';
+import AlbumPage        from '@/pages/AlbumPage';
+import ArtistPage       from '@/pages/ArtistPage';
+import ProfilePage      from '@/pages/ProfilePage';
+import PublicUserPage   from '@/pages/PublicUserPage';
+import LikedSongsPage   from '@/pages/LikedSongsPage';
+import QueuePage        from '@/pages/QueuePage';
+import PlaylistPage     from '@/pages/PlaylistPage';
+import FolderPage       from '@/pages/FolderPage';
 
 function App() {
   return (
     <HashRouter>
       <Routes>
         <Route element={<AppLayout />}>
-          <Route path="/"              element={<HomePage />} />
-          <Route path="/search"        element={<SearchPage />} />
-          <Route path="/library"       element={<LibraryPage />} />
-          <Route path="/liked"         element={<LikedSongsPage />} />
-          <Route path="/album/:id"     element={<AlbumPage />} />
-          <Route path="/artist/:id"    element={<ArtistPage />} />
-          <Route path="/profile"       element={<ProfilePage />} />
-          <Route path="/queue"         element={<QueuePage />} />
-          <Route path="/playlist/:id"  element={<PlaylistPage />} />
-          <Route path="/folder/:id"    element={<FolderPage />} />
+          <Route path="/"                      element={<HomePage />} />
+          <Route path="/search"                element={<SearchPage />} />
+          <Route path="/library"               element={<LibraryPage />} />
+          <Route path="/liked"                 element={<LikedSongsPage />} />
+          <Route path="/album/:id"             element={<AlbumPage />} />
+          <Route path="/artist/:id"            element={<ArtistPage />} />
+          <Route path="/profile"               element={<ProfilePage />} />
+          {/* Public user profile */}
+          <Route path="/user/:username"        element={<PublicUserPage />} />
+          <Route path="/queue"                 element={<QueuePage />} />
+          {/* Playlist: slug is optional/cosmetic — id is canonical */}
+          <Route path="/playlist/:id/:slug?"   element={<PlaylistPage />} />
+          <Route path="/folder/:id"            element={<FolderPage />} />
         </Route>
       </Routes>
     </HashRouter>

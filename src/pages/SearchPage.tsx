@@ -34,6 +34,7 @@ import { PlaylistRepository }           from '@/repositories/playlists/PlaylistR
 import { usePlaylistStore }             from '@/store/usePlaylistStore';
 import { PlaylistArtwork }              from '@/features/artwork';
 import SongRow                          from '@/components/ui/SongRow';
+import CreatorLink                      from '@/components/ui/CreatorLink';
 import type { Album, Artist }           from '@/types/music';
 import type { HistoryEntity }           from '@/store/useSearchHistoryStore';
 import type { Playlist }                from '@/store/usePlaylistStore';
@@ -106,10 +107,10 @@ const PlaylistResultRow = ({ playlist, onResultClick }: { playlist: Playlist; on
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[0.88rem] font-medium text-swara-text truncate">{playlist.title}</p>
-        <p className="text-[0.72rem] text-swara-muted truncate">
-          by {playlist.creatorUsername}
-          {playlist.trackCount > 0 && ` · ${playlist.trackCount} track${playlist.trackCount !== 1 ? 's' : ''}`}
-          {playlist.isSaved && <span className="ml-1 text-swara-accent">· Saved</span>}
+        <p className="text-[0.72rem] text-swara-muted truncate flex items-center gap-1 flex-wrap">
+          <CreatorLink username={playlist.creatorUsername ?? ''} className="text-swara-muted text-[0.72rem]" />
+          {playlist.trackCount > 0 && <span>· {playlist.trackCount} track{playlist.trackCount !== 1 ? 's' : ''}</span>}
+          {playlist.isSaved && <span className="text-swara-accent">· Saved</span>}
         </p>
       </div>
       <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="text-swara-dim flex-shrink-0" aria-hidden="true">

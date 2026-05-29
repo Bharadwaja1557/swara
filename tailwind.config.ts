@@ -9,16 +9,19 @@ const config: Config = {
     extend: {
       colors: {
         swara: {
-          bg:       '#09090C',
-          surface:  '#101014',
-          card:     '#18181F',
-          elevated: '#20202A',
-          border:   '#26262F',
-          accent:   '#C8A96A',
-          'accent-bright': '#E2C485',
-          text:     '#F0EDE4',
-          muted:    '#88857B',
-          dim:      '#3E3D3A',
+          // All colors now reference CSS variables set by [data-theme].
+          // Components never need to change — dark/semi-dark/light all work
+          // automatically because var(--sw-*) updates on the :root.
+          bg:            'var(--sw-bg)',
+          surface:       'var(--sw-surface)',
+          card:          'var(--sw-card)',
+          elevated:      'var(--sw-elevated)',
+          border:        'var(--sw-border)',
+          accent:        'var(--sw-accent)',
+          'accent-bright': 'var(--sw-accent-b)',
+          text:          'var(--sw-text)',
+          muted:         'var(--sw-muted)',
+          dim:           'var(--sw-dim)',
         },
       },
       fontFamily: {
@@ -59,8 +62,8 @@ const config: Config = {
         },
       },
       animation: {
-        'card-in':      'card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
-        'track-in':     'track-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'card-in':       'card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'track-in':      'track-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) both',
         'cover-breathe': 'cover-breathe 4s ease-in-out infinite',
       },
     },

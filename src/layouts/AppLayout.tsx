@@ -23,6 +23,7 @@ import { useUserLibraryStore }  from '@/store/useUserLibraryStore';
 import { usePlaylistStore }     from '@/store/usePlaylistStore';
 import { useAuthStore }         from '@/store/useAuthStore';
 import { useProfileStore }      from '@/store/useProfileStore';
+import { useThemeStore }        from '@/store/useThemeStore';
 import { useIsDesktop }         from '@/hooks/useIsDesktop';
 import { restorePlaybackState } from '@/store/playerStore';
 import { startRealtimeSync, stopRealtimeSync } from '@/lib/realtimeSync';
@@ -88,7 +89,7 @@ const AppLayout = () => {
   useEffect(() => {
     if (!isAuth) return;
     load();           // 2a: album stubs → triggers `loaded` flag when done
-    fetchProfile();   // 2b: profile from Supabase (independent of library)
+    fetchProfile().then(() => useThemeStore.getState().hydrateFromCloud()); // 2b: profile + cloud theme
   }, [isAuth, load, fetchProfile]);
 
   // ── Steps 3–6: track loading + playback restore + cloud syncs ─────────────

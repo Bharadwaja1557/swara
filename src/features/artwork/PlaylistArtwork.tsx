@@ -41,6 +41,7 @@
 import { memo, useMemo, useState } from 'react';
 import { useLibraryStore }          from '@/store/libraryStore';
 import { resolvePlaylistArtwork }   from './resolvePlaylistArtwork';
+import { setCachedArtwork } from './playlistArtworkCache';
 import type { Playlist }            from '@/store/usePlaylistStore';
 import type { PlaylistArtworkResult } from './resolvePlaylistArtwork';
 
@@ -189,14 +190,14 @@ const PlaylistArtwork = memo(({
   //   • coverId changes           (preset selected)
   //   • trackIds first-4 change   (songs added/removed affecting collage)
   //   • trackMap reference changes (catalog reloaded)
-  const artwork = useMemo(
-    () => resolvePlaylistArtwork(playlist, trackMap),
-    // We use artworkKey as described above, but since useMemo needs the
-    // raw inputs to compute it in the first place, we list the minimal
-    // set of fields that can affect artworkKey:
+  const artwork = useMemo(() => {
+    const result = resolvePlaylistArtwork(playlist, trackMap);
+    // Write to memory cache — getCachedArtwork() used by external callers
+    // that want the result without triggering a React render (e.g. export).
+    setCachedArtwork(playlist.id, result);
+    return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [playlist.coverImageUrl, playlist.coverId, playlist.trackIds, trackMap],
-  );
+  }, [playlist.coverImageUrl, playlist.coverId, playlist.trackIds, trackMap]);
 
   const content = useMemo(
     () => renderContent(artwork, size),

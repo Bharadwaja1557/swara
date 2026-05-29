@@ -26,6 +26,7 @@
 
 import type { Album, Artist, Track } from '@/types/music';
 import type { Playlist } from '@/store/usePlaylistStore';
+import { playlistRoute }   from '@/lib/playlistSlug';
 import type { PlaylistFolder } from '@/store/useFolderStore';
 import type { UserLibraryEntry } from '@/store/useUserLibraryStore';
 import type { LibrarySortMode } from '@/store/useLibraryPrefsStore';
@@ -120,7 +121,7 @@ function fromPlaylist(playlist: Playlist): LibraryRenderable {
     key:              `playlist-${playlist.id}`,
     type:             'playlist',
     id:               playlist.id,
-    route:            `/playlist/${playlist.id}`,
+    route:            playlistRoute(playlist.id, playlist.title),
     title:            playlist.title,
     subtitle,
     coverShape:       'square',

@@ -116,3 +116,64 @@
     50%       { transform: scaleY(1);   }
   }
 }
+
+/* ── THEME SYSTEM ─────────────────────────────────────────────────────────────
+   Three themes via [data-theme] on <html>.
+   CSS variables map to Tailwind's swara-* color tokens.
+   Components use bg-swara-bg, text-swara-text etc — no manual changes needed.
+   Smooth transition applied to all color/bg/border changes.
+──────────────────────────────────────────────────────────────────────────── */
+
+/* Transition ALL theme-sensitive properties when data-theme changes */
+*, *::before, *::after {
+  transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+  transition-duration: 220ms;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* Opt specific elements OUT of the colour transition (images, video) */
+img, video, canvas, svg image {
+  transition: none !important;
+}
+
+/* ── DARK (default) ─────────────────────────────────────────────────────────── */
+:root,
+[data-theme="dark"] {
+  --sw-bg:           #09090C;
+  --sw-surface:      #101014;
+  --sw-card:         #18181F;
+  --sw-elevated:     #20202A;
+  --sw-border:       #26262F;
+  --sw-accent:       #C8A96A;
+  --sw-accent-b:     #E2C485;
+  --sw-text:         #F0EDE4;
+  --sw-muted:        #88857B;
+  --sw-dim:          #3E3D3A;
+}
+
+/* ── SEMI-DARK ──────────────────────────────────────────────────────────────── */
+[data-theme="semi-dark"] {
+  --sw-bg:           #12121A;
+  --sw-surface:      #1A1A24;
+  --sw-card:         #22222E;
+  --sw-elevated:     #2A2A38;
+  --sw-border:       #33334A;
+  --sw-accent:       #C8A96A;
+  --sw-accent-b:     #E2C485;
+  --sw-text:         #EDE9E0;
+  --sw-muted:        #9E9A8E;
+  --sw-dim:          #4A4848;
+}
+
+/* ── LIGHT ──────────────────────────────────────────────────────────────────── */
+[data-theme="light"] {
+  --sw-bg:           #F5F3EE;
+  --sw-surface:      #EDEAE3;
+  --sw-card:         #E4E0D7;
+  --sw-elevated:     #DAD6CC;
+  --sw-border:       #C8C4B8;
+  --sw-accent:       #A07A30;
+  --sw-accent-b:     #B8912A;
+  --sw-text:         #1A1815;
+  --sw-muted:        #6B665A;
+  --sw-dim:          #999080;
+}

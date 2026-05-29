@@ -56,6 +56,9 @@ export interface Playlist {
   isOwned?: boolean;
   /** True if the current user saved this playlist (but doesn't own it). */
   isSaved?: boolean;
+  /** True if the creator soft-deleted this playlist. Hidden everywhere. */
+  softDeleted?: boolean;
+  deletedAt?: string;
 }
 
 // ── localStorage helpers ──────────────────────────────────────────────────────
@@ -85,6 +88,8 @@ function backfillTimestamps(p: Partial<Playlist> & { id: string; createdAt: stri
     creatorUsername:  p.creatorUsername,
     isOwned:          p.isOwned,
     isSaved:          p.isSaved,
+    softDeleted:      p.softDeleted,
+    deletedAt:        p.deletedAt,
   };
 }
 
@@ -246,13 +251,14 @@ export const usePlaylistStore = create<PlaylistState>((set, get) => ({
   },
 
   deletePlaylist: (id) => {
+    // Optimistic: remove from local store immediately
     const playlists = get().playlists.filter((p) => p.id !== id);
     writeCache(playlists);
     set({ playlists });
-
+    // Soft-delete on server (preserves data, hides from all queries)
     import('@/repositories/playlists/PlaylistRepository')
-      .then(({ PlaylistRepository }) => PlaylistRepository.deletePlaylist(id))
-      .catch((err) => console.error('[Playlists] deletePlaylist cloud write failed:', err));
+      .then(({ PlaylistRepository }) => PlaylistRepository.softDeletePlaylist(id))
+      .catch((err) => console.error('[Playlists] deletePlaylist (soft) cloud write failed:', err));
   },
 
   togglePublic: (id) => {

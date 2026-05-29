@@ -15,13 +15,12 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 8.2
- *   8.x = Search + Playlist architecture
- *   .2  = Profile resolution audit: centralized resolveCreatorUsernames(),
- *         profiles RLS fixed (SELECT open to all authenticated users),
- *         auth trigger for auto profile creation, backfill migration,
- *         eliminated 'unknown' / UUID-fragment fallbacks everywhere
+ * CURRENT: 9.0
+ *   9.x = Creator Platform
+ *   .0  = 3-theme system (dark/semi-dark/light), PublicUserPage (/user/:username),
+ *         ProfilePage dashboard+stats+refresh, CreatorLink component, slug URLs,
+ *         soft-delete playlists, PlaylistArtwork memory cache
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '8.2';
+export const APP_VERSION = '9.0';
