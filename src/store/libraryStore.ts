@@ -55,6 +55,13 @@ interface LibraryState {
 
   load:            () => Promise<void>;
   loadAlbumTracks: (albumId: string) => Promise<Track[]>;
+  /**
+   * Full metadata refresh — clears caches, fetches fresh library.json with
+   * cache-busting, then loads ALL album track lists.
+   * Safe to call multiple times (internally serialized).
+   * Used by ProfilePage "Refresh Library Metadata".
+   */
+  refreshLibrary:  () => Promise<void>;
 
   // O(1) lookup API — use these instead of .find()
   getTrackById:  (id: string) => Track | undefined;
@@ -141,6 +148,53 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     } catch (err) {
       console.error(`[Library] Failed to load "${albumId}":`, (err as Error).message);
       return [];
+    }
+  },
+
+  refreshLibrary: async () => {
+    // Guard against concurrent calls
+    if (get().loading) return;
+
+    // Step 1: Clear in-memory JS caches AND arm the HTTP cache-bust flag.
+    //   clearLibraryCacheBusted() does three things:
+    //     a) sets libraryCache = null  (forces re-parse of library.json)
+    //     b) clears albumTracksCache   (forces re-fetch of every album JSON)
+    //     c) sets _bustNextFetch = true (fetchWithFallback will use cache:'reload'
+    //        for the very next network request, bypassing jsDelivr edge cache
+    //        and browser HTTP cache for the stale manifest)
+    const { clearLibraryCacheBusted } = await import('@/utils/library');
+    clearLibraryCacheBusted();
+
+    // Step 2: Wipe the store completely — identical to a cold start.
+    //   Setting loaded:false allows load() to proceed past its guard.
+    set({
+      albums:    [],
+      tracks:    [],
+      artists:   [],
+      trackMap:  new Map(),
+      albumMap:  new Map(),
+      artistMap: new Map(),
+      loaded:    false,
+      loading:   false,
+      error:     null,
+    });
+
+    // Step 3: Fetch fresh library.json stubs (the cache-bust flag fires here).
+    await get().load();
+
+    if (get().error) {
+      // load() failed — propagate so ProfilePage can show the error toast
+      throw new Error(get().error ?? 'Library load failed');
+    }
+
+    // Step 4: Load ALL album tracks in parallel.
+    //   This is the step AppLayout's syncDoneRef prevented from re-running.
+    //   After this, tracks.length and trackMap.size are fully populated —
+    //   identical to the state after a normal cold-start sequence.
+    const { albums, loadAlbumTracks } = get();
+    const unloaded = albums.filter((a) => a.tracks.length === 0);
+    if (unloaded.length > 0) {
+      await Promise.all(unloaded.map((a) => loadAlbumTracks(a.id)));
     }
   },
 

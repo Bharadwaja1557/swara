@@ -15,12 +15,11 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.0
+ * CURRENT: 9.1
  *   9.x = Creator Platform
- *   .0  = 3-theme system (dark/semi-dark/light), PublicUserPage (/user/:username),
- *         ProfilePage dashboard+stats+refresh, CreatorLink component, slug URLs,
- *         soft-delete playlists, PlaylistArtwork memory cache
+ *   .1  = Fix: refreshLibrary() fully rebuilds tracks+indexes; HTTP cache-bust
+ *         via shouldBustCache() flag; Fix: PlaylistArtwork size=0 in PublicUserPage
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.0';
+export const APP_VERSION = '9.1';

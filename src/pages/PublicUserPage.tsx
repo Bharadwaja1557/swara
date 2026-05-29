@@ -161,7 +161,7 @@ const PublicUserPage = () => {
                   onClick={() => navigate(`/playlist/${pl.id}/${slugify(pl.title)}`)}
                   className="flex flex-col text-left active:scale-[0.97] group">
                   <div className="w-full aspect-square rounded-xl overflow-hidden bg-swara-elevated mb-2">
-                    <PlaylistArtwork playlist={pl} size={160} className="w-full h-full" />
+                    <PlaylistArtwork playlist={pl} size={0} className="w-full h-full" />
                   </div>
                   <p className="text-[0.8rem] font-semibold text-swara-text truncate leading-tight">{pl.title}</p>
                   <p className="text-[0.7rem] text-swara-muted mt-0.5">{pl.trackCount} track{pl.trackCount !== 1 ? 's' : ''}</p>

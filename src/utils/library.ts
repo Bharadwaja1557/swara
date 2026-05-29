@@ -46,8 +46,12 @@ function isLikelyBlocked(url: string, err: unknown): boolean {
 
 // ─── Resilient fetch — one retry, block detection ────────────────────────────
 async function fetchWithFallback(url: string, label: string): Promise<Response> {
+  // If a cache-bust was requested (e.g. after Refresh Library Metadata),
+  // use { cache: 'reload' } to bypass both browser HTTP cache and any
+  // CDN edge cache for this one request. shouldBustCache() is one-shot.
+  const cacheMode: RequestCache = shouldBustCache() ? 'reload' : 'default';
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { cache: cacheMode });
     if (!res.ok) {
       mediaLogger.fetchError(url, res.status, false);
       throw new Error(`${label}: HTTP ${res.status}`);
@@ -177,9 +181,38 @@ export async function fetchAlbumTracks(album: Album): Promise<Track[]> {
 }
 
 // ─── Clear caches ─────────────────────────────────────────────────────────────
+
 export function clearLibraryCache(): void {
   libraryCache = null;
   albumTracksCache.clear();
+}
+
+/**
+ * Extended cache clear that also instructs the browser to bypass its HTTP
+ * cache on the NEXT fetch for library.json and album JSON files.
+ *
+ * jsDelivr CDN serves responses with long cache-control headers.
+ * The browser will serve the old manifest from its HTTP cache on subsequent
+ * fetch() calls unless we explicitly override the cache mode.
+ *
+ * We achieve this by setting a module-level flag that fetchWithFallback()
+ * checks on the next call — it uses { cache: 'reload' } for that one fetch,
+ * then resets to normal. This is a one-shot bypass, not a permanent change.
+ */
+let _bustNextFetch = false;
+
+export function clearLibraryCacheBusted(): void {
+  libraryCache = null;
+  albumTracksCache.clear();
+  _bustNextFetch = true;
+}
+
+export function shouldBustCache(): boolean {
+  if (_bustNextFetch) {
+    _bustNextFetch = false; // one-shot — reset after first read
+    return true;
+  }
+  return false;
 }
 
 

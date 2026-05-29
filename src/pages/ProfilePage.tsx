@@ -12,7 +12,6 @@ import { useLikedStore }        from '@/store/likedStore';
 import { usePlaylistStore }     from '@/store/usePlaylistStore';
 import { useThemeStore, THEMES, type Theme } from '@/store/useThemeStore';
 import { useToastStore }        from '@/store/useToastStore';
-import { clearLibraryCache }    from '@/utils/library';
 import { APP_VERSION }          from '@/version';
 
 const ProfilePage = () => {
@@ -43,17 +42,20 @@ const ProfilePage = () => {
 
   const handleRefreshMetadata = async () => {
     try {
-      clearLibraryCache();
-      // Invalidate playlist artwork cache so collages re-resolve with fresh covers
+      // Delegate entirely to the store's self-contained refreshLibrary():
+      //   1. Clears JS caches + arms HTTP cache-bust (bypasses jsDelivr edge cache)
+      //   2. Wipes store state to cold-start baseline
+      //   3. Fetches fresh library.json from network
+      //   4. Loads ALL album tracks in parallel (rebuilds trackMap, tracks[])
+      // This is the same sequence AppLayout runs at startup, so the result is
+      // identical to a page reload — but without actually reloading the page.
+      const { useLibraryStore } = await import('@/store/libraryStore');
+      await useLibraryStore.getState().refreshLibrary();
+
+      // Also invalidate playlist artwork cache so collages re-resolve
       const { invalidateAllPlaylistArtwork } = await import('@/features/artwork/playlistArtworkCache');
       invalidateAllPlaylistArtwork();
-      const { useLibraryStore } = await import('@/store/libraryStore');
-      useLibraryStore.setState({
-        albums: [], tracks: [], artists: [],
-        trackMap: new Map(), albumMap: new Map(), artistMap: new Map(),
-        loaded: false, loading: false, error: null,
-      });
-      await useLibraryStore.getState().load();
+
       showToast('Library metadata refreshed', 'check');
     } catch {
       showToast('Refresh failed — try again', 'error');
