@@ -8,13 +8,17 @@
 import { useState, useEffect }     from 'react';
 import { useParams, useNavigate }  from 'react-router-dom';
 import { supabase }                from '@/lib/supabase';
+import { buildAvatarUrl }         from '@/repositories/profile/ProfileRepository';
+import UserAvatar                 from '@/components/profile/UserAvatar';
 import { PlaylistArtwork }         from '@/features/artwork';
 import type { Playlist }           from '@/store/usePlaylistStore';
 
 interface PublicProfile {
-  id:         string;
-  username:   string;
-  created_at: string;
+  id:                string;
+  username:          string;
+  avatar_url:        string | null;
+  avatar_updated_at: string | null;
+  created_at:        string;
 }
 
 const PublicUserPage = () => {
@@ -35,7 +39,7 @@ const PublicUserPage = () => {
       // Fetch profile by username
       const { data: profileData, error: profileErr } = await supabase
         .from('profiles')
-        .select('id, username, created_at')
+        .select('id, username, avatar_url, avatar_updated_at, created_at')
         .eq('username', username)
         .single();
 
@@ -133,14 +137,15 @@ const PublicUserPage = () => {
 
       <div className="flex flex-col items-center pt-8 px-6 lg:px-10 gap-5 pb-10">
         {/* Avatar */}
-        <div className="w-20 h-20 rounded-full bg-swara-elevated border border-swara-border flex items-center justify-center flex-shrink-0">
-          {loading
-            ? <div className="w-7 h-7 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" />
-            : <span className="text-[1.7rem] font-bold text-swara-accent font-display leading-none">
-                {(profile?.username ?? '?')[0].toUpperCase()}
-              </span>
-          }
-        </div>
+        {loading
+          ? <div className="w-20 h-20 rounded-full bg-swara-elevated border border-swara-border flex items-center justify-center flex-shrink-0"><div className="w-7 h-7 rounded-full border-2 border-swara-border border-t-swara-accent animate-spin" /></div>
+          : <UserAvatar
+              username={profile?.username ?? username ?? '?'}
+              avatarUrl={profile ? buildAvatarUrl(profile.avatar_url, profile.avatar_updated_at) : null}
+              size={80}
+              className="border border-swara-border"
+            />
+        }
 
         {/* Identity */}
         {!loading && profile && (

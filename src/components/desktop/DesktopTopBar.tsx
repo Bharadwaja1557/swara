@@ -12,6 +12,8 @@
 import { useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useDesktopSearchStore } from '@/store/useDesktopSearchStore';
+import { useProfileStore }       from '@/store/useProfileStore';
+import UserAvatar                from '@/components/profile/UserAvatar';
 
 // ─── DesktopTopBar ────────────────────────────────────────────────────────────
 const DesktopTopBar = () => {
@@ -24,6 +26,8 @@ const DesktopTopBar = () => {
   const query            = useDesktopSearchStore((s) => s.query);
   const setDesktopQuery  = useDesktopSearchStore((s) => s.setQuery);
   const clearDesktopQuery = useDesktopSearchStore((s) => s.clearQuery);
+  const username  = useProfileStore((s) => s.getUsername());
+  const avatarUrl = useProfileStore((s) => s.getAvatarUrl());
 
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -114,13 +118,11 @@ const DesktopTopBar = () => {
         </div>
       </div>
 
-      {/* User icon */}
+      {/* User avatar → /profile */}
       <button type="button" onClick={() => navigate('/profile')}
-        className="flex-shrink-0 w-8 h-8 rounded-full bg-swara-elevated border border-swara-border flex items-center justify-center text-swara-muted hover:text-swara-text transition-colors"
+        className="flex-shrink-0 rounded-full active:scale-95 transition-transform"
         aria-label="Profile">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" aria-hidden="true">
-          <path d="M12 12a5 5 0 1 0 0-10 5 5 0 0 0 0 10ZM20.59 22c0-3.63-3.85-6.57-8.59-6.57S3.41 18.37 3.41 22" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-        </svg>
+        <UserAvatar username={username || '?'} avatarUrl={avatarUrl} size={32} />
       </button>
     </header>
   );

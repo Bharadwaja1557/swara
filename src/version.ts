@@ -15,11 +15,11 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.4
+ * CURRENT: 9.5
  *   9.x = Creator Platform
- *   .4  = Fix TDZ crash: VOLUME_KEY/DEFAULT_VOL moved before usePlayerStore create();
- *         Fix manifest 404: relative icon paths for GitHub Pages /swara/ subpath
+ *   .5  = Full avatar system: upload, resize/WebP, progress ring, cache-busting,
+ *         UserAvatar component, avatars bucket, migration-010
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.4';
+export const APP_VERSION = '9.5';
