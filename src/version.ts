@@ -15,11 +15,12 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.2
+ * CURRENT: 9.3
  *   9.x = Creator Platform
- *   .2  = Audio preloading (next-track buffer), global keyboard controls,
- *         complete Media Session API (lock screen/notification controls), PWA manifest
+ *   .3  = Volume in Zustand (keyboard hotkeys fixed), queue-reactive preload,
+ *         timing-based preload trigger, Media Session handlers registered once,
+ *         expanded artwork sizes, audio interruption tracking, PWA icons
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.2';
+export const APP_VERSION = '9.3';

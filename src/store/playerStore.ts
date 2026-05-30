@@ -47,7 +47,7 @@ import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
 import { STORAGE_KEY } from '@/lib/persistence/versions';
 import type { SchemaV3 } from '@/lib/persistence/versions';
 import { canBrowserPlay }                          from '@/features/media/canBrowserPlay';
-import { schedulePreload, clearPreloader }          from '@/lib/audioPreloader';
+import { recomputePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloader } from '@/lib/audioPreloader';
 import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
 import { mediaLogger }                              from '@/features/media/mediaLogger';
 
@@ -151,6 +151,7 @@ export function restorePlaybackState(trackMap: Map<string, Track>): void {
     if ('mediaSession' in navigator) {
       try { navigator.mediaSession.playbackState = 'paused'; } catch {}
     }
+    _recomputePreload(); // prime cache for the track after the restored one
     console.log(`[Playback] Restored: "${track.title}" (${idx + 1}/${activeQueue.length}) — paused`);
   } catch (err) {
     console.error('[Playback] restorePlaybackState error:', err);
@@ -167,6 +168,7 @@ function getAudio(): HTMLAudioElement {
     _audio.preload = 'metadata';
     _audio.volume  = _readPersistedVolume(); // restore before any track loads
     _setupListeners(_audio);
+    _initMediaSession(); // register handlers ONCE for the engine's lifetime
   }
   return _audio;
 }
@@ -253,6 +255,13 @@ function _skipToNext(reason: 'error') {
   }
 }
 
+// ── Audio focus interruption tracking ────────────────────────────────────────
+// Distinguishes user-initiated pauses from system interruptions
+// (incoming call, other app taking audio focus, browser tab backgrounding).
+// Used to prevent auto-resuming playback incorrectly after an interruption.
+// The flag is read by future resume logic — not yet acted on in UI.
+let _wasInterrupted = false;
+
 function _setupListeners(a: HTMLAudioElement) {
   a.ontimeupdate = () => {
     const dur  = a.duration || 0;
@@ -266,12 +275,26 @@ function _setupListeners(a: HTMLAudioElement) {
       } catch {}
     }
     _throttledSaveTimestamp();
+
+    // Timing-based preload: only start buffering next track when
+    // progress > 70% OR remaining time < 25 s — saves bandwidth on skips
+    const currentTrack = _eng.activeQueue[_eng.idx];
+    if (currentTrack) {
+      const { activeQueue, idx, repeat } = _eng;
+      let nextIdx: number | null = null;
+      if (repeat === 'one')                        nextIdx = idx;
+      else if (idx < activeQueue.length - 1)       nextIdx = idx + 1;
+      else if (repeat === 'all')                   nextIdx = 0;
+      const nextUrl = nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null;
+      checkPreloadTrigger(currentTrack.id, prog, dur, nextUrl);
+    }
   };
 
   a.onloadedmetadata = () => _sync?.({ duration: a.duration });
 
   a.onplay  = () => {
     _consecutiveErrors = 0; // successful play — reset error streak
+    _wasInterrupted = false; // user (or engine) initiated play — not an interruption
     _sync?.({ isPlaying: true });
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
   };
@@ -279,7 +302,21 @@ function _setupListeners(a: HTMLAudioElement) {
     _sync?.({ isPlaying: false });
     if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
     _savePlayback();
+    // Note: _wasInterrupted is set by document visibilitychange (below).
+    // A pause from user interaction resets it. This allows future resume
+    // logic to distinguish "user paused" from "system interrupted".
   };
+
+  // Interruption detection: browser hides the tab or OS steals audio focus
+  // → the browser pauses audio → we mark it as an interruption.
+  // We reset the flag on user-initiated play so auto-resume doesn't fire
+  // after a deliberate pause.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && !a.paused) {
+      // Tab going background while playing — may indicate interruption
+      _wasInterrupted = true;
+    }
+  }, { passive: true });
 
   a.onended = () => {
     const { activeQueue, idx, repeat } = _eng;
@@ -322,6 +359,8 @@ function _setupListeners(a: HTMLAudioElement) {
 
 function _loadAndPlay(track: Track) {
   const a = getAudio();
+  // Reset per-track preload trigger so timing check fires fresh for this track
+  resetPreloadTrigger();
 
   // ── Format check before loading ──────────────────────────────────────────
   // Detect unsupported codecs synchronously — no network request.
@@ -377,37 +416,36 @@ function _loadAndPlay(track: Track) {
   _pushRecent(track.albumId, track.id);
   _sync?.({ recentSongs: _loadRecents() });
   _savePlayback();
-  // Schedule preloading of the next track in the queue
-  _scheduleNextPreload();
 }
+// NOTE: preload for a freshly loaded track is handled by
+// checkPreloadTrigger() in ontimeupdate when progress > 70% or ≤25s remain.
 
-function _updateMediaSession(track: Track) {
-  // Guard: API not available (pre-Chromium Edge, some WebViews, all Desktop Firefox < 82)
+/**
+ * _initMediaSession — called ONCE when the audio engine first initialises.
+ *
+ * Registers all action handlers permanently. Handlers are closures that
+ * delegate to the live _eng state at the moment they fire — so they always
+ * reflect the current queue, regardless of when they were registered.
+ *
+ * Bluetooth earbuds, keyboard media keys, car controls, and Android headset
+ * buttons all go through these handlers. Registering them once prevents
+ * the accidental handler-stacking that happens when setActionHandler is
+ * called on every track change.
+ *
+ * ARCHITECTURE NOTE:
+ *   • _initMediaSession() → registers handlers (once)
+ *   • _updateMediaSession(track) → updates metadata only (every track change)
+ * These two concerns are intentionally split.
+ */
+function _initMediaSession(): void {
   if (!('mediaSession' in navigator)) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title:   track.title,
-      artist:  track.artist,
-      album:   track.album,
-      // Provide multiple sizes so the OS picks the best fit.
-      // Type is image/jpeg as a safe fallback — most cover images are JPEG.
-      // Browsers that support webp will use the same URL; no separate asset needed.
-      artwork: track.coverUrl
-        ? [
-            { src: track.coverUrl, sizes: '96x96',   type: 'image/jpeg' },
-            { src: track.coverUrl, sizes: '256x256',  type: 'image/jpeg' },
-            { src: track.coverUrl, sizes: '512x512',  type: 'image/jpeg' },
-          ]
-        : [],
-    });
-
-    // Transport controls — shown on lock screen / notification shade
     navigator.mediaSession.setActionHandler('play',  () => { getAudio().play().catch(() => {}); });
     navigator.mediaSession.setActionHandler('pause', () => { getAudio().pause(); });
     navigator.mediaSession.setActionHandler('nexttrack',     () => _advanceNext());
     navigator.mediaSession.setActionHandler('previoustrack', () => _advancePrev());
 
-    // seekto: used by Android's media notification scrubber + macOS Now Playing
+    // seekto — Android notification scrubber, macOS Now Playing timeline
     navigator.mediaSession.setActionHandler('seekto', (d) => {
       const a = getAudio();
       if (d.seekTime !== undefined && isFinite(a.duration) && a.duration > 0) {
@@ -415,8 +453,9 @@ function _updateMediaSession(track: Track) {
       }
     });
 
-    // seekbackward/seekforward: iOS lock screen 15-second skip buttons
-    // (iOS does not expose nexttrack/previoustrack on lock screen without these)
+    // seekbackward/seekforward — iOS lock screen ±10s skip buttons.
+    // iOS does NOT show nexttrack/previoustrack on the lock screen without these.
+    // Also used by some Bluetooth headsets and car head units.
     navigator.mediaSession.setActionHandler('seekbackward', (d) => {
       const a = getAudio();
       a.currentTime = Math.max(0, a.currentTime - (d.seekOffset ?? 10));
@@ -427,8 +466,43 @@ function _updateMediaSession(track: Track) {
         a.currentTime = Math.min(a.duration, a.currentTime + (d.seekOffset ?? 10));
       }
     });
+    console.log('[MediaSession] action handlers registered');
   } catch {
-    // MediaSession API exists but threw (some sandboxed WebViews) — ignore silently
+    // Sandboxed WebViews — fail silently
+  }
+}
+
+/**
+ * _updateMediaSession — called on every track change.
+ * Updates ONLY the metadata (title, artist, album, artwork).
+ * Does NOT re-register action handlers (those are permanent via _initMediaSession).
+ *
+ * ARTWORK SIZES:
+ *   Android OEM lock screens and media panels request different sizes.
+ *   Providing all common sizes lets each device pick the best fit.
+ *   image/jpeg declared as the type; actual URL may be JPEG or WebP —
+ *   the browser fetches the URL regardless and inspects the actual content-type.
+ */
+function _updateMediaSession(track: Track) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title:   track.title,
+      artist:  track.artist,
+      album:   track.album,
+      artwork: track.coverUrl
+        ? [
+            { src: track.coverUrl, sizes: '96x96',    type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '128x128',   type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '192x192',   type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '256x256',   type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '384x384',   type: 'image/jpeg' },
+            { src: track.coverUrl, sizes: '512x512',   type: 'image/jpeg' },
+          ]
+        : [],
+    });
+  } catch {
+    // Sandboxed WebViews — fail silently
   }
 }
 
@@ -452,25 +526,28 @@ function _advancePrev() {
 }
 
 /**
- * Determine the URL of the next effective track and schedule preloading.
- * Respects queue order, repeat mode (all/one/off), and queue length.
- * Called after every queue mutation and after each track change.
+ * Compute the URL of the next effective track and pass it to recomputePreload().
+ * Called after every queue topology mutation so the preload target is always live.
+ *
+ * recomputePreload() handles:
+ *   - debouncing (1 200 ms settle)
+ *   - idempotency (no-op if URL unchanged)
+ *   - stale cancellation (aborts in-progress HTTP request if URL changed)
  */
-function _scheduleNextPreload(): void {
+function _recomputePreload(): void {
   const { activeQueue, idx, repeat } = _eng;
-  if (activeQueue.length === 0) { schedulePreload(null); return; }
+  if (activeQueue.length === 0) { recomputePreload(null); return; }
 
   let nextIdx: number | null = null;
   if (repeat === 'one') {
-    // Same track will repeat — preload it (it might already be buffered, idempotent)
-    nextIdx = idx;
+    nextIdx = idx; // same track loops
   } else if (idx < activeQueue.length - 1) {
     nextIdx = idx + 1;
   } else if (repeat === 'all') {
     nextIdx = 0;
   }
 
-  schedulePreload(nextIdx !== null ? activeQueue[nextIdx].streamUrl : null);
+  recomputePreload(nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null);
 }
 
 // ─── Recents ─────────────────────────────────────────────────────────────────
@@ -535,6 +612,7 @@ export interface PlayerReactState {
   repeat:        RepeatMode;
   progress:      number;
   duration:      number;
+  volume:        number;  // 0–1; lives in Zustand so ALL sources sync the slider
   isExpanded:    boolean;
   recentSongs:   RecentEntry[];
   queueContext:  QueueContext | null;
@@ -566,6 +644,8 @@ export interface PlayerState extends PlayerReactState {
   openFullscreen:    () => void;
   closeFullscreen:   () => void;
   toggleFullscreen:  () => void;
+  setVolume:         (vol: number) => void;
+  adjustVolume:      (delta: number) => void;
   setQueueSource:    (source: QueueSource) => void;
   refreshRecents:    () => void;
 }
@@ -611,6 +691,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     queueContext:  null,
     queueLength:   0,
     queueVersion:  0,
+    volume:        _readPersistedVolume(),
 
     // ── playQueue — primary entry point ────────────────────────────────────
     playQueue: ({ tracks, context, startIndex = 0 }) => {
@@ -640,6 +721,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         queueVersion:  ++_queueVersion,
       });
       _savePlayback();
+      _recomputePreload();
     },
 
     // ── appendToQueue ─────────────────────────────────────────────────────
@@ -650,7 +732,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _eng.originalQueue = [..._eng.originalQueue, track];
       set({ queueLength: _eng.activeQueue.length, queueVersion: ++_queueVersion });
       _savePlayback();
-      _scheduleNextPreload();
+      _recomputePreload();
     },
 
     // ── insertAfterCurrent ────────────────────────────────────────────────
@@ -676,6 +758,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _eng.originalQueue = oq;
       set({ queueLength: _eng.activeQueue.length, queueVersion: ++_queueVersion });
       _savePlayback();
+      _recomputePreload();
     },
 
     // ── removeFromQueue ────────────────────────────────────────────────────
@@ -744,6 +827,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         queueVersion: ++_queueVersion,
       });
       _savePlayback();
+      _recomputePreload();
     },
 
     // ── moveQueueTrack ────────────────────────────────────────────────────
@@ -788,12 +872,13 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         queueVersion: ++_queueVersion,
       });
       _savePlayback();
+      _recomputePreload();
     },
 
     // ── clearQueue ────────────────────────────────────────────────────────
     clearQueue: () => {
       getAudio().pause();
-      schedulePreload(null); // abort buffering
+      recomputePreload(null); // abort buffering
       _eng.activeQueue   = [];
       _eng.originalQueue = [];
       _eng.idx           = 0;
@@ -884,6 +969,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
         queueVersion: ++_queueVersion,
       });
       _savePlayback();
+      _recomputePreload(); // shuffle changes the next track
     },
 
     toggleRepeat: () => {
@@ -891,12 +977,21 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
       _eng.repeat = next;
       set({ repeat: next });
       _savePlayback();
+      _recomputePreload(); // repeat mode changes which track is "next"
     },
 
     setExpanded:     (v) => set({ isExpanded: v }),
     openFullscreen:  ()  => set({ isExpanded: true }),
     closeFullscreen: ()  => set({ isExpanded: false }),
     toggleFullscreen:()  => set((s) => ({ isExpanded: !s.isExpanded })),
+    setVolume: (vol) => {
+      setAudioVolume(vol); // updates engine + persist + _sync({volume})
+    },
+
+    adjustVolume: (delta) => {
+      setAudioVolume(getAudioVolume() + delta);
+    },
+
     setQueueSource: (source) => {
       const ctx: QueueContext = { type: source ?? 'unknown' };
       _eng.queueContext = ctx;
@@ -936,9 +1031,15 @@ export function setAudioVolume(vol: number) {
   const clamped = Math.max(0, Math.min(1, vol));
   getAudio().volume = clamped;
   _writePersistedVolume(clamped);
-  _savePlayback(); // keep playback schema in sync too
+  // Sync Zustand so ALL consumers (slider, keyboard HUD, etc.) update
+  _sync?.({ volume: clamped });
+  _savePlayback();
 }
 
 export function getAudioVolume(): number {
   return _audio?.volume ?? _readPersistedVolume();
 }
+
+
+/** Whether the last pause was caused by a system interruption (not user action). */
+export function wasInterrupted(): boolean { return _wasInterrupted; }

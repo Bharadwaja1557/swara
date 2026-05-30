@@ -3,7 +3,7 @@
  * Reuses all playback logic from playerStore (no duplication).
  */
 import { useState, useEffect } from 'react';
-import { usePlayerStore, setAudioVolume, getAudioVolume } from '@/store/playerStore';
+import { usePlayerStore } from '@/store/playerStore';
 import { formatDuration } from '@/utils/greeting';
 import ShuffleIcon from '@/components/ui/ShuffleIcon';
 
@@ -12,20 +12,19 @@ const PH = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" view
 const DesktopPlayer = () => {
   const {
     currentTrack, isPlaying, isShuffle, repeat,
-    progress, duration,
+    progress, duration, volume,
     togglePlay, next, prev,
     toggleShuffle, toggleRepeat,
+    setVolume: setVolumeStore,
     seekTo, isExpanded, toggleFullscreen,
   } = usePlayerStore();
 
-  const [volume, setVolume]   = useState(() => getAudioVolume());
   const [coverErr, setCoverErr] = useState(false);
 
   useEffect(() => { setCoverErr(false); }, [currentTrack?.id]);
 
   const handleVolume = (v: number) => {
-    setVolume(v);
-    setAudioVolume(v);
+    setVolumeStore(v);
   };
 
   if (!currentTrack) {

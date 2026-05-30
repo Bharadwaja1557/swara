@@ -1,136 +1,163 @@
 /**
  * src/lib/audioPreloader.ts
  *
- * Intelligent next-track preloader.
+ * Intelligent next-track preloader — v2.
  *
- * ── ARCHITECTURE ─────────────────────────────────────────────────────────────
- * There is exactly ONE authoritative playback engine: the _audio element in
- * playerStore.ts.  This module manages a SECOND, hidden Audio element used
- * solely for buffering — it never plays audio, only downloads it.
+ * ── SINGLE HIDDEN AUDIO ELEMENT ──────────────────────────────────────────────
+ * Manages exactly ONE hidden Audio element globally. Never plays audio.
+ * Its sole purpose: prime the browser's HTTP cache with the next track's URL
+ * so the main engine's transition is near-instant.
  *
- * The preload element is completely independent from the main engine:
- *   - It has no event handlers that affect playback state
- *   - It is paused and muted at all times
- *   - Its src is set to the next track to prime the browser HTTP cache
- *   - When the main engine loads that same URL, the browser serves it from
- *     cache → significantly reduced buffering delay at transition time
+ * ── TIMING-BASED TRIGGER ─────────────────────────────────────────────────────
+ * Preloading does NOT start immediately after a track loads. Instead
+ * playerStore calls checkPreloadTrigger() from ontimeupdate. Preloading
+ * begins only when:
+ *   • remaining time < 25 seconds, OR
+ *   • progress > 70%
+ * This avoids wasting bandwidth on long tracks the user might skip early.
+ * A per-track flag (_preloadTriggeredForTrack) prevents re-triggering.
  *
- * ── LIFECYCLE ─────────────────────────────────────────────────────────────────
- * 1. After any queue mutation or track change, schedulePreload() is called
- *    with the URL of the NEXT effective track.
- * 2. A 1 500ms debounce fires — this avoids thrashing on rapid skips or
- *    burst queue mutations. The most recent call wins.
- * 3. If the URL matches what is already loaded → no-op (idempotent).
- * 4. Otherwise the preload element src is set and load() is called.
- *    The browser starts buffering in the background.
+ * ── QUEUE-REACTIVE RECOMPUTATION ─────────────────────────────────────────────
+ * _recomputePreload() is the single entry point for all queue mutations.
+ * It reads the LIVE queue state at call time:
+ *   1. Computes the effective next track URL
+ *   2. Cancels pending debounce (stale target abandoned)
+ *   3. Aborts any in-progress preload for a different URL
+ *   4. Schedules the new preload with DEBOUNCE_MS delay
+ * This means rapid mutations (e.g. insert + remove in quick succession)
+ * produce exactly ONE preload for the final queue state.
  *
  * ── STALE PRELOAD CANCELLATION ───────────────────────────────────────────────
- * Every call to schedulePreload() cancels the pending debounce timer.
- * If the queue changes between the debounce fires:
- *   - The NEW next track's URL is used (stale target discarded)
- *   - If a preload is already in progress for the old URL:
- *     - src is set to '' — browser aborts the in-progress request
- *     - No memory leak from a half-buffered audio segment
+ * Stale cancellation is two-step:
+ *   Step 1: Cancel debounce timer → pending URL is forgotten
+ *   Step 2: If an element is already loading a different URL:
+ *           el.src = '' then el.load() → browser aborts the HTTP request
  *
- * ── RACE CONDITIONS ──────────────────────────────────────────────────────────
- * The debounce timer ensures only the MOST RECENT next-track URL is ever
- * loaded. Rapid skip → skip → skip produces one preload for the final
- * destination, not three queued preload requests.
+ * ── AUDIO FOCUS INTERRUPTION ─────────────────────────────────────────────────
+ * The preload element is always muted and never plays. It does NOT
+ * participate in the browser's audio focus arbitration. Incoming calls,
+ * other apps taking focus, or interruptions affect ONLY the main engine.
  *
- * ── BROWSER SUPPORT ──────────────────────────────────────────────────────────
- * All modern browsers. Mobile Safari (iOS 15+) supports background audio
- * buffering in a PWA context. Standard browser tab is fine on all platforms.
- * If Audio() is unavailable (SSR/test), the module is a no-op.
- *
- * ── MEMORY ────────────────────────────────────────────────────────────────────
- * One Audio element, one URL string, one timer handle.
- * clearPreloader() nulls the element and is called on session clear.
+ * ── MEMORY / iOS SAFARI ──────────────────────────────────────────────────────
+ * clearPreloader() destroys the element reference entirely.
+ * Called on logout, clearQueue, and session clear.
+ * This is important for iOS Safari which counts Audio elements toward
+ * its per-tab media memory budget.
  */
 
-const DEBOUNCE_MS = 1_500; // wait this long after last queue change before preloading
+const DEBOUNCE_MS        = 1_200; // settle time after last queue mutation
+const PRELOAD_PROGRESS   = 0.70;  // trigger at 70% progress
+const PRELOAD_REMAINING  = 25;    // OR when ≤25 seconds remain
 
 let _preloadEl:     HTMLAudioElement | null = null;
 let _preloadedUrl:  string = '';
 let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function getPreloadEl(): HTMLAudioElement | null {
-  if (typeof Audio === 'undefined') return null;   // SSR / test guard
+// Per-track flag — prevents re-triggering preload for the same track
+let _preloadTriggeredForTrack: string = '';
+
+function _getEl(): HTMLAudioElement | null {
+  if (typeof Audio === 'undefined') return null; // SSR / test
   if (!_preloadEl) {
     _preloadEl          = new Audio();
     _preloadEl.preload  = 'auto';
     _preloadEl.muted    = true;
     _preloadEl.volume   = 0;
-    // Never let it advance to play — we just want buffering
     _preloadEl.autoplay = false;
-    // Silence all errors — this is best-effort buffering
-    _preloadEl.onerror  = null;
+    _preloadEl.onerror  = null; // silence errors — best-effort only
   }
   return _preloadEl;
 }
 
-/**
- * Schedule preloading of the given URL.
- * Calling with null/'' cancels any pending preload.
- * Calling multiple times: only the last URL is preloaded (debounced).
- */
-export function schedulePreload(url: string | null | undefined): void {
-  // Cancel any pending debounce (stale-cancel step 1)
-  if (_debounceTimer !== null) {
-    clearTimeout(_debounceTimer);
-    _debounceTimer = null;
-  }
-
-  if (!url) {
-    // Explicit cancel — abort any in-progress preload
-    _abortCurrentPreload();
-    return;
-  }
-
-  // Debounce: wait for queue to settle before starting network request
-  _debounceTimer = setTimeout(() => {
-    _debounceTimer = null;
-    _doPreload(url);
-  }, DEBOUNCE_MS);
+function _abortCurrent(): void {
+  const el = _getEl();
+  if (!el || !_preloadedUrl) return;
+  el.src = '';
+  el.load(); // browser aborts the in-progress HTTP request
+  _preloadedUrl = '';
 }
 
 function _doPreload(url: string): void {
   if (!url) return;
-
-  // Idempotent — already buffering this exact URL
-  if (_preloadedUrl === url) return;
-
-  const el = getPreloadEl();
+  if (_preloadedUrl === url) return; // idempotent
+  const el = _getEl();
   if (!el) return;
-
-  // Abort any in-progress preload for a different URL (stale-cancel step 2)
-  _abortCurrentPreload();
-
+  _abortCurrent();
   _preloadedUrl = url;
   el.src = url;
   el.load();
-  // Do NOT call el.play() — we only want the browser to buffer, not decode+play
 }
 
-function _abortCurrentPreload(): void {
-  const el = getPreloadEl();
-  if (!el) return;
-  if (_preloadedUrl) {
-    el.src = '';  // Tells browser to abort any in-progress request
-    el.load();    // Reset element state
-    _preloadedUrl = '';
+// ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Called by playerStore after every queue mutation.
+ * Reads the effective next URL and schedules a debounced preload.
+ * Passing null/undefined cancels any pending preload.
+ */
+export function recomputePreload(nextUrl: string | null | undefined): void {
+  if (_debounceTimer !== null) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = null;
   }
+  if (!nextUrl) {
+    _abortCurrent();
+    return;
+  }
+  // Don't re-schedule if we're already loading exactly this URL
+  if (_preloadedUrl === nextUrl) return;
+
+  _debounceTimer = setTimeout(() => {
+    _debounceTimer = null;
+    _doPreload(nextUrl);
+  }, DEBOUNCE_MS);
 }
 
 /**
- * Called when the session is cleared (logout).
- * Destroys the preload element to free memory.
+ * Called from ontimeupdate. Fires the preload trigger once per track
+ * when progress exceeds the threshold. Subsequent calls for the same
+ * trackId are no-ops.
+ *
+ * @param trackId    current track ID (used for the per-track guard)
+ * @param progress   0–1 ratio
+ * @param duration   seconds
+ * @param nextUrl    the URL to preload (computed from live queue)
+ */
+export function checkPreloadTrigger(
+  trackId:  string,
+  progress: number,
+  duration: number,
+  nextUrl:  string | null | undefined,
+): void {
+  if (!nextUrl) return;
+  if (_preloadTriggeredForTrack === trackId) return; // already triggered this track
+
+  const remaining = duration > 0 ? duration * (1 - progress) : Infinity;
+  const shouldFire = progress > PRELOAD_PROGRESS || remaining < PRELOAD_REMAINING;
+  if (!shouldFire) return;
+
+  _preloadTriggeredForTrack = trackId;
+  recomputePreload(nextUrl);
+}
+
+/**
+ * Reset the per-track trigger flag. Call when a new track starts.
+ */
+export function resetPreloadTrigger(): void {
+  _preloadTriggeredForTrack = '';
+}
+
+/**
+ * Full cleanup — destroys element, cancels timers, clears all state.
+ * Call on logout, clearQueue, and session clear.
  */
 export function clearPreloader(): void {
   if (_debounceTimer !== null) {
     clearTimeout(_debounceTimer);
     _debounceTimer = null;
   }
-  _abortCurrentPreload();
+  _abortCurrent();
   _preloadEl    = null;
   _preloadedUrl = '';
+  _preloadTriggeredForTrack = '';
 }
