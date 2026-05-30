@@ -1,108 +1,103 @@
 /**
- * src/lib/audioPreloader.ts — v3: Active Buffer Architecture
+ * src/lib/audioPreloader.ts — v3 + instrumentation build
  *
- * ── FUNDAMENTAL CHANGE FROM v2 ───────────────────────────────────────────────
- * v1/v2 primed the browser's HTTP cache via a hidden Audio element.
- * The main engine still called a.src=url; a.load(); a.play() at transition
- * time — requiring a new network request at the worst possible moment.
- *
- * v3 uses a TRUE double-buffer model:
- *   _bufferEl  — actively downloads and decodes the next track
- *   Main engine (_audio in playerStore) — plays the current track
- *
- * At transition time (onended), playerStore calls swapBuffer() instead of
- * _loadAndPlay(). swapBuffer() physically replaces _audio with _bufferEl,
- * transferring the already-decoded audio data without any new network request.
- *
- * ── WHY THIS FIXES BACKGROUND PLAYBACK ───────────────────────────────────────
- * The original failure mode:
- *   1. Song A is playing in a backgrounded tab
- *   2. Song A ends → onended fires → _loadAndPlay(songB) is called
- *   3. _loadAndPlay sets a.src = songB.url; a.load(); a.play()
- *   4. This requires a NEW network request for songB
- *   5. iOS Safari and Chrome on Android throttle/block new network requests
- *      initiated by backgrounded tabs that are not currently playing audio
- *   6. The request stalls → no audio → song B never starts
- *
- * Why repeat-one worked:
- *   repeat-one does a.currentTime = 0; a.play() — no src change, no network
- *   request. The audio data is already decoded in the element.
- *
- * v3 solution:
- *   The buffer element is loaded while Song A is still playing (foreground).
- *   By the time Song A ends, Song B is already fully decoded in _bufferEl.
- *   swapBuffer() swaps the elements and calls play() — no new network request.
- *   iOS/Android do not throttle play() calls on already-loaded audio.
- *
- * ── ELEMENT SWAP MECHANICS ───────────────────────────────────────────────────
- * swapBuffer() is called by playerStore's onended handler. It:
- *   1. Takes the _bufferEl (already buffered)
- *   2. Sets volume, attaches the caller-supplied event listeners
- *   3. Returns the element for playerStore to use as its new main engine
- *   4. Creates a fresh _bufferEl for the track after the next one
- *
- * playerStore's getAudio() returns the current main engine element.
- * After a swap, playerStore calls notifyEngineSwapped(newEl) to update the
- * reference held by the rest of the engine.
- *
- * ── QUEUE REACTIVITY ─────────────────────────────────────────────────────────
- * Every queue mutation calls recomputeBuffer(nextUrl).
- *   - If nextUrl matches what's already buffered → no-op (idempotent)
- *   - If different → abort current buffer download, start new one
- *   - If null → abort and release element
- *
- * ── TIMING TRIGGER ───────────────────────────────────────────────────────────
- * Buffer loading begins when:
- *   • progress > 70%, OR
- *   • remaining < 30 seconds
- * This is earlier than v2's 25-second threshold because we need the full
- * file downloaded before track end, not just started.
- *
- * ── MEMORY ───────────────────────────────────────────────────────────────────
- * Maximum 2 Audio elements at any time:
- *   1 playing (main engine in playerStore)
- *   1 buffering (the _bufferEl here)
- *
- * ── iOS SAFARI SPECIFICS ─────────────────────────────────────────────────────
- * iOS 15+ supports Web Audio API in background tabs if audio is actively
- * playing. A muted background Audio element may be suspended by iOS when
- * the tab is backgrounded. The buffer element is set to volume=0, not muted
- * via the .muted property, to avoid iOS treating it as a "silent" element
- * eligible for suspension. Additionally, loading starts early enough that
- * the download completes while the tab is still foreground.
- *
- * ── RANGE REQUEST NOTE ───────────────────────────────────────────────────────
- * jsDelivr (cdn.jsdelivr.net) serves content from GitHub repositories.
- * jsDelivr's CDN supports HTTP Range Requests (Accept-Ranges: bytes) and
- * responds with 206 Partial Content for range requests. This means:
- *   - The browser's audio element can stream audio progressively
- *   - Buffering begins with only the first few KB (headers + codec info)
- *   - The browser downloads the rest in the background
- *   - On cache hit (same URL requested again), full file is served from cache
- * The preload='auto' setting tells the browser to download the full file,
- * which is what we want for background playback — the full file is in memory
- * before the current track ends.
+ * INSTRUMENTATION LAYER ADDED (remove before shipping).
+ * All [BUF] log lines are temporary diagnostic output.
+ * Zero logic changes from the previous version.
  */
 
 export type BufferReadyCallback = (el: HTMLAudioElement) => void;
 
 const PRELOAD_PROGRESS  = 0.70;
-const PRELOAD_REMAINING = 30;    // seconds — earlier than v2 (was 25)
-const DEBOUNCE_MS       = 800;   // settle time after queue mutation
+const PRELOAD_REMAINING = 30;
+const DEBOUNCE_MS       = 800;
 
 let _bufferEl:       HTMLAudioElement | null = null;
 let _bufferedUrl:    string = '';
 let _debounceTimer:  ReturnType<typeof setTimeout> | null = null;
-let _triggeredFor:   string = ''; // per-track guard (trackId)
+let _triggeredFor:   string = '';
+
+// ── Instrumentation helpers ───────────────────────────────────────────────────
+
+function _ts(): string {
+  return new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
+}
+
+function _vis(): string {
+  return document.hidden ? 'BG' : 'FG';
+}
+
+/** Snapshot of the buffer element's current network/buffer state. */
+function _snapState(el: HTMLAudioElement): string {
+  const rs  = el.readyState;   // 0=NOTHING 1=METADATA 2=CURRENT 3=FUTURE 4=ENOUGH
+  const ns  = el.networkState; // 0=EMPTY 1=IDLE 2=LOADING 3=NO_SOURCE
+  const buf = el.buffered.length > 0
+    ? `${el.buffered.start(0).toFixed(1)}–${el.buffered.end(el.buffered.length - 1).toFixed(1)}s`
+    : 'none';
+  const dur = isFinite(el.duration) ? `${el.duration.toFixed(1)}s` : '?';
+  return `readyState=${rs} networkState=${ns} buffered=[${buf}] duration=${dur}`;
+}
+
+/** Attach readyState/event monitoring to a buffer element for diagnostics. */
+function _instrumentBufferEl(el: HTMLAudioElement, label: string): void {
+  // readyState milestones
+  el.addEventListener('loadstart',      () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadstart       | ${_snapState(el)}`));
+  el.addEventListener('durationchange', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} durationchange  | ${_snapState(el)}`));
+  el.addEventListener('loadedmetadata', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadedmetadata  | ${_snapState(el)}`));
+  el.addEventListener('loadeddata',     () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadeddata      | ${_snapState(el)}`));
+  el.addEventListener('progress',       () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} progress        | ${_snapState(el)}`));
+  el.addEventListener('canplay',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} canplay         | ${_snapState(el)}`));
+  el.addEventListener('canplaythrough', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} canplaythrough  | ${_snapState(el)}`));
+  el.addEventListener('stalled',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} stalled         | ${_snapState(el)}`));
+  el.addEventListener('suspend',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} suspend         | ${_snapState(el)}`));
+  el.addEventListener('waiting',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} waiting         | ${_snapState(el)}`));
+  el.addEventListener('error',          () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} error           | code=${el.error?.code} msg=${el.error?.message}`));
+  el.addEventListener('abort',          () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} abort           | ${_snapState(el)}`));
+}
+
+// Periodic readyState poll while buffering (fires every 2s, stops when ready or aborted).
+// Answers: "is readyState advancing at all in background?"
+let _pollTimer: ReturnType<typeof setTimeout> | null = null;
+function _startPoll(label: string): void {
+  _stopPoll();
+  let ticks = 0;
+  const poll = () => {
+    if (!_bufferEl || !_bufferedUrl) { _stopPoll(); return; }
+    ticks++;
+    console.log(`[BUF ${_ts()} ${_vis()}] POLL[${ticks}] ${label} | ${_snapState(_bufferEl)}`);
+    if (_bufferEl.readyState >= 4) {
+      console.log(`[BUF ${_ts()} ${_vis()}] POLL done — readyState reached 4 for ${label}`);
+      _stopPoll();
+      return;
+    }
+    _pollTimer = setTimeout(poll, 2000);
+  };
+  _pollTimer = setTimeout(poll, 2000);
+}
+function _stopPoll(): void {
+  if (_pollTimer !== null) { clearTimeout(_pollTimer); _pollTimer = null; }
+}
+
+// Visibility log — tells us exactly when the tab goes BG/FG
+document.addEventListener('visibilitychange', () => {
+  console.log(`[BUF ${_ts()}] *** visibilitychange → ${document.hidden ? 'BACKGROUND' : 'FOREGROUND'} ***`);
+  if (_bufferEl && _bufferedUrl) {
+    console.log(`[BUF ${_ts()}] buffer state at visibility change: ${_snapState(_bufferEl)}`);
+  }
+});
 
 // ── Element creation ──────────────────────────────────────────────────────────
 
+let _bufferSeq = 0; // sequential label for each buffer element
+
 function _makeBufferEl(): HTMLAudioElement {
+  const seq   = ++_bufferSeq;
   const el    = new Audio();
-  el.preload  = 'auto';   // download full file — needed for background playback
-  el.volume   = 0;        // silent but NOT .muted (iOS treats .muted differently)
+  el.preload  = 'auto';
+  el.volume   = 0;
   el.autoplay = false;
-  el.onerror  = null;     // silence errors — handled at swap time
+  el.onerror  = null;
+  _instrumentBufferEl(el, `buf#${seq}`);
   return el;
 }
 
@@ -116,6 +111,8 @@ function _getOrCreateBufferEl(): HTMLAudioElement | null {
 
 function _abortBuffer(): void {
   if (!_bufferEl || !_bufferedUrl) return;
+  console.log(`[BUF ${_ts()} ${_vis()}] _abortBuffer: aborting ${_bufferedUrl.slice(-30)}`);
+  _stopPoll();
   _bufferEl.src = '';
   _bufferEl.load();
   _bufferedUrl = '';
@@ -123,23 +120,30 @@ function _abortBuffer(): void {
 
 function _startBuffer(url: string): void {
   if (!url) return;
-  if (_bufferedUrl === url) return; // already loading this URL
+  if (_bufferedUrl === url) {
+    console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: already loading, skip (${url.slice(-30)})`);
+    return;
+  }
 
   const el = _getOrCreateBufferEl();
   if (!el) return;
 
   _abortBuffer();
+
+  const shortUrl = url.slice(-40);
+  console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: BEGIN ${shortUrl}`);
+
   _bufferedUrl = url;
   el.src = url;
-  el.load(); // begins download, does NOT play
+  el.load();
+
+  _startPoll(shortUrl);
+
+  console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: AFTER el.load() | ${_snapState(el)}`);
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/**
- * Called after every queue mutation.
- * Debounced so burst mutations (e.g. rapid reorder) produce one buffer load.
- */
 export function recomputePreload(nextUrl: string | null | undefined): void {
   if (_debounceTimer !== null) {
     clearTimeout(_debounceTimer);
@@ -149,7 +153,7 @@ export function recomputePreload(nextUrl: string | null | undefined): void {
     _abortBuffer();
     return;
   }
-  if (_bufferedUrl === nextUrl) return; // idempotent
+  if (_bufferedUrl === nextUrl) return;
 
   _debounceTimer = setTimeout(() => {
     _debounceTimer = null;
@@ -157,10 +161,6 @@ export function recomputePreload(nextUrl: string | null | undefined): void {
   }, DEBOUNCE_MS);
 }
 
-/**
- * Called from ontimeupdate when progress crosses the threshold.
- * One-shot per track (guarded by _triggeredFor).
- */
 export function checkPreloadTrigger(
   trackId:  string,
   progress: number,
@@ -173,71 +173,56 @@ export function checkPreloadTrigger(
   const remaining = duration > 0 ? duration * (1 - progress) : Infinity;
   if (progress <= PRELOAD_PROGRESS && remaining > PRELOAD_REMAINING) return;
 
+  console.log(`[BUF ${_ts()} ${_vis()}] checkPreloadTrigger FIRED track=${trackId.slice(0, 8)} prog=${(progress * 100).toFixed(0)}% rem=${remaining.toFixed(1)}s next=${nextUrl.slice(-30)}`);
   _triggeredFor = trackId;
-  // Bypass debounce — we're in playback and need to start immediately
   _startBuffer(nextUrl);
 }
 
-/**
- * Reset per-track trigger. Call at the start of each new track.
- */
 export function resetPreloadTrigger(): void {
+  console.log(`[BUF ${_ts()} ${_vis()}] resetPreloadTrigger (_triggeredFor was "${_triggeredFor.slice(0, 8)}")`);
   _triggeredFor = '';
 }
 
-/**
- * Try to swap the buffer element into playback position.
- *
- * Called by playerStore's onended handler instead of _loadAndPlay.
- * Returns the buffer element if it has the correct URL buffered,
- * or null if the buffer isn't ready (fallback: _loadAndPlay is called).
- *
- * After a successful swap, the caller must:
- *   1. Attach event listeners (onended, onerror, ontimeupdate, etc.)
- *   2. Set volume to the current player volume
- *   3. Call el.play()
- *   4. Call notifySwapComplete() to create a fresh buffer element
- *
- * @param expectedUrl  the streamUrl of the next track
- * @param volume       current player volume (0–1)
- */
 export function trySwapBuffer(
   expectedUrl: string,
   volume: number,
 ): HTMLAudioElement | null {
-  if (!_bufferEl) return null;
-  if (_bufferedUrl !== expectedUrl) return null;
+  const shortUrl = expectedUrl.slice(-40);
+  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: expectedUrl=${shortUrl}`);
 
-  // Check that the element has actually buffered enough data to play.
-  // readyState >= 3 (HAVE_FUTURE_DATA) means the browser has data beyond
-  // the current position — safe to call play() without a network stall.
-  if (_bufferEl.readyState < 3) {
-    // Not enough data yet — let the caller fall back to _loadAndPlay.
-    // _loadAndPlay will benefit from the partial buffer via HTTP cache.
-    console.log('[Preloader] buffer not ready (readyState:', _bufferEl.readyState, ')');
+  if (!_bufferEl) {
+    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — _bufferEl is null`);
+    return null;
+  }
+  if (_bufferedUrl !== expectedUrl) {
+    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — URL mismatch. buffered=${_bufferedUrl.slice(-40)}`);
     return null;
   }
 
+  const rs = _bufferEl.readyState;
+  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: readyState=${rs} | ${_snapState(_bufferEl)}`);
+
+  if (rs < 3) {
+    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — not enough data (readyState=${rs}, need ≥3)`);
+    return null;
+  }
+
+  _stopPoll();
   const el = _bufferEl;
-  // Disconnect from preloader management
   _bufferEl    = null;
   _bufferedUrl = '';
 
-  // Prepare element for playback
-  el.volume   = volume;
-  el.muted    = false;
-  el.autoplay = false;
+  el.volume      = volume;
+  el.muted       = false;
+  el.autoplay    = false;
   el.currentTime = 0;
 
+  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: SUCCESS — element handed to engine`);
   return el;
 }
 
-/**
- * Called by playerStore after a successful swap, with the URL of the
- * track-after-next, to start buffering it immediately.
- */
 export function notifySwapComplete(nextNextUrl: string | null | undefined): void {
-  // Fresh buffer element for the next-next track
+  console.log(`[BUF ${_ts()} ${_vis()}] notifySwapComplete: nextNextUrl=${nextNextUrl ? nextNextUrl.slice(-40) : 'null'}`);
   _bufferEl    = _makeBufferEl();
   _bufferedUrl = '';
   _triggeredFor = '';
@@ -246,11 +231,10 @@ export function notifySwapComplete(nextNextUrl: string | null | undefined): void
   }
 }
 
-/**
- * Full cleanup. Call on logout, clearQueue, session clear.
- */
 export function clearPreloader(): void {
+  console.log(`[BUF ${_ts()} ${_vis()}] clearPreloader`);
   if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; }
+  _stopPoll();
   _abortBuffer();
   if (_bufferEl) { _bufferEl.src = ''; _bufferEl = null; }
   _bufferedUrl  = '';

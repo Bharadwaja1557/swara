@@ -293,6 +293,9 @@ function _skipToNext(reason: 'error') {
 let _wasInterrupted = false;
 
 function _setupListeners(a: HTMLAudioElement) {
+  const _slTs = () => new Date().toISOString().slice(11, 23);
+  const _slVis = () => document.hidden ? 'BG' : 'FG';
+  console.log(`[ENG ${_slTs()} ${_slVis()}] _setupListeners called — wiring handlers on element`);
   a.ontimeupdate = () => {
     const dur  = a.duration || 0;
     const prog = dur > 0 ? a.currentTime / dur : 0;
@@ -374,12 +377,12 @@ function _setupListeners(a: HTMLAudioElement) {
     const nextTrack = activeQueue[nextIdx];
 
     // ── Try buffer swap first ─────────────────────────────────────────────
-    // If the next track was pre-buffered while Song A was playing, swap the
-    // buffer element into playback position. No new network request needed.
-    // This is what makes background playback work: Song B is already in memory.
+    const _engTs = () => new Date().toISOString().slice(11, 23);
+    const _engVis = () => document.hidden ? 'BG' : 'FG';
+    console.log(`[ENG ${_engTs()} ${_engVis()}] onended: idx=${_eng.idx} track="${nextTrack.title}" — attempting swap`);
     const swapped = trySwapBuffer(nextTrack.streamUrl, getAudio().volume);
     if (swapped) {
-      // Replace the main audio element with the pre-buffered one
+      console.log(`[ENG ${_engTs()} ${_engVis()}] onended: SWAP SUCCEEDED for "${nextTrack.title}"`);
       _audio = swapped;
       _setupListeners(_audio);
       _audio.play().catch((e: Error) => {
@@ -405,13 +408,14 @@ function _setupListeners(a: HTMLAudioElement) {
       // Compute the track AFTER next and start buffering it
       const nextNextIdx = nextIdx + 1 < activeQueue.length ? nextIdx + 1
                         : repeat === 'all' ? 0 : null;
-      notifySwapComplete(nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null);
+      const nextNextUrl = nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null;
+      console.log(`[ENG ${_engTs()} ${_engVis()}] calling notifySwapComplete — next-next="${activeQueue[nextNextIdx ?? -1]?.title ?? 'none'}"`);
+      notifySwapComplete(nextNextUrl);
       return;
     }
 
     // ── Fallback: normal load ─────────────────────────────────────────────
-    // Buffer wasn't ready (partial download, queue changed, etc.)
-    // _loadAndPlay benefits from any partial HTTP cache the buffer built up.
+    console.log(`[ENG ${_engTs()} ${_engVis()}] onended: SWAP FAILED — falling back to _loadAndPlay for "${nextTrack.title}"`);
     _loadAndPlay(nextTrack);
   };
 
@@ -435,7 +439,9 @@ function _setupListeners(a: HTMLAudioElement) {
 
 function _loadAndPlay(track: Track) {
   const a = getAudio();
-  // Reset per-track preload trigger so timing check fires fresh for this track
+  const _lapTs = () => new Date().toISOString().slice(11, 23);
+  const _lapVis = () => document.hidden ? 'BG' : 'FG';
+  console.log(`[ENG ${_lapTs()} ${_lapVis()}] _loadAndPlay: "${track.title}" url=${track.streamUrl.slice(-40)}`);
   resetPreloadTrigger();
 
   // ── Format check before loading ──────────────────────────────────────────
