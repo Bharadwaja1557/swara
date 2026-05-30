@@ -51,6 +51,36 @@ import { recomputePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloa
 import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
 import { mediaLogger }                              from '@/features/media/mediaLogger';
 
+// ─── Volume persistence ───────────────────────────────────────────────────────
+// Declared FIRST so they are initialized before usePlayerStore's create()
+// callback runs. Moving these to the bottom caused a TDZ crash in production:
+// Rollup's scope-hoisting reorders module-scope const declarations, so
+// VOLUME_KEY was in TDZ when _readPersistedVolume() was called from the
+// Zustand initial state object inside create().
+//
+// Rule: any const/let referenced inside create()'s synchronous callback
+// MUST be declared before the create() call.
+
+const VOLUME_KEY  = 'swara:volume';
+const DEFAULT_VOL = 1;
+
+function _readPersistedVolume(): number {
+  try {
+    if (typeof window === 'undefined') return DEFAULT_VOL;
+    const raw = localStorage.getItem(VOLUME_KEY);
+    if (raw === null) return DEFAULT_VOL;
+    const v = parseFloat(raw);
+    return isFinite(v) ? Math.max(0, Math.min(1, v)) : DEFAULT_VOL;
+  } catch { return DEFAULT_VOL; }
+}
+
+function _writePersistedVolume(v: number): void {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem(VOLUME_KEY, String(v));
+  } catch {}
+}
+
+
 /** Backwards-compat alias */
 export type QueueSource = QueueContext['type'] | null;
 
@@ -1001,29 +1031,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
   };
 });
 
-// ─── Volume persistence ───────────────────────────────────────────────────────
-// Persisted separately from the playback queue so volume is ALWAYS restored,
-// even when there is no saved queue (e.g. first launch after clearing history).
-// Uses a dedicated key so it survives schema migrations cleanly.
 
-const VOLUME_KEY    = 'swara:volume';
-const DEFAULT_VOL   = 1;
-
-function _readPersistedVolume(): number {
-  try {
-    if (typeof window === 'undefined') return DEFAULT_VOL;
-    const raw = localStorage.getItem(VOLUME_KEY);
-    if (raw === null) return DEFAULT_VOL;
-    const v = parseFloat(raw);
-    return isFinite(v) ? Math.max(0, Math.min(1, v)) : DEFAULT_VOL;
-  } catch { return DEFAULT_VOL; }
-}
-
-function _writePersistedVolume(v: number): void {
-  try {
-    if (typeof window !== 'undefined') localStorage.setItem(VOLUME_KEY, String(v));
-  } catch {}
-}
 
 // ─── Volume ───────────────────────────────────────────────────────────────────
 
