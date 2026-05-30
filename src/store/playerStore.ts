@@ -47,7 +47,7 @@ import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
 import { STORAGE_KEY } from '@/lib/persistence/versions';
 import type { SchemaV3 } from '@/lib/persistence/versions';
 import { canBrowserPlay }                          from '@/features/media/canBrowserPlay';
-import { recomputePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloader } from '@/lib/audioPreloader';
+import { recomputePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloader, trySwapBuffer, notifySwapComplete } from '@/lib/audioPreloader';
 import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
 import { mediaLogger }                              from '@/features/media/mediaLogger';
 
@@ -350,23 +350,69 @@ function _setupListeners(a: HTMLAudioElement) {
 
   a.onended = () => {
     const { activeQueue, idx, repeat } = _eng;
-    if (activeQueue.length === 0) return; // I2: nothing to advance to
+    if (activeQueue.length === 0) return;
+
+    // repeat=one: no src change needed — just seek and replay.
+    // This always works in background because no network request is made.
     if (repeat === 'one') {
       a.currentTime = 0;
       a.play().catch(() => {});
       return;
     }
+
     let nextIdx: number | null = null;
-    if (idx < activeQueue.length - 1)               nextIdx = idx + 1;
+    if (idx < activeQueue.length - 1)                    nextIdx = idx + 1;
     else if (repeat === 'all' && activeQueue.length > 0) nextIdx = 0;
 
-    if (nextIdx !== null) {
-      _eng.idx = nextIdx;
-      _loadAndPlay(activeQueue[nextIdx]);
-    } else {
+    if (nextIdx === null) {
       _sync?.({ isPlaying: false, progress: 0 });
       _savePlayback();
+      return;
     }
+
+    _eng.idx = nextIdx;
+    const nextTrack = activeQueue[nextIdx];
+
+    // ── Try buffer swap first ─────────────────────────────────────────────
+    // If the next track was pre-buffered while Song A was playing, swap the
+    // buffer element into playback position. No new network request needed.
+    // This is what makes background playback work: Song B is already in memory.
+    const swapped = trySwapBuffer(nextTrack.streamUrl, getAudio().volume);
+    if (swapped) {
+      // Replace the main audio element with the pre-buffered one
+      _audio = swapped;
+      _setupListeners(_audio);
+      _audio.play().catch((e: Error) => {
+        if (e?.name === 'NotAllowedError') return;
+        if (e?.name === 'AbortError')      return;
+        // Swap play() failed — fall back to _loadAndPlay
+        _loadAndPlay(nextTrack);
+      });
+      _sync?.({
+        currentTrack: nextTrack,
+        currentIndex: _eng.idx,
+        isPlaying:    true,
+        progress:     0,
+        duration:     _audio.duration || 0,
+        queueLength:  _eng.activeQueue.length,
+        queueVersion: ++_queueVersion,
+      });
+      _updateMediaSession(nextTrack);
+      _pushRecent(nextTrack.albumId, nextTrack.id);
+      _sync?.({ recentSongs: _loadRecents() });
+      _savePlayback();
+
+      // Compute the track AFTER next and start buffering it
+      const nextNextIdx = nextIdx + 1 < activeQueue.length ? nextIdx + 1
+                        : repeat === 'all' ? 0 : null;
+      notifySwapComplete(nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null);
+      return;
+    }
+
+    // ── Fallback: normal load ─────────────────────────────────────────────
+    // Buffer wasn't ready (partial download, queue changed, etc.)
+    // _loadAndPlay benefits from any partial HTTP cache the buffer built up.
+    _loadAndPlay(nextTrack);
   };
 
   a.onerror = () => {

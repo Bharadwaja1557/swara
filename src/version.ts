@@ -15,11 +15,11 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.5
+ * CURRENT: 9.6
  *   9.x = Creator Platform
- *   .5  = Full avatar system: upload, resize/WebP, progress ring, cache-busting,
- *         UserAvatar component, avatars bucket, migration-010
+ *   .6  = UserAvatar explicit load-state (letter/image mutual exclusion);
+ *         audioPreloader v3 double-buffer swap for background playback continuity
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.5';
+export const APP_VERSION = '9.6';
