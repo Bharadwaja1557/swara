@@ -286,16 +286,22 @@ function _skipToNext(reason: 'error') {
 }
 
 // ── Audio focus interruption tracking ────────────────────────────────────────
-// Distinguishes user-initiated pauses from system interruptions
-// (incoming call, other app taking audio focus, browser tab backgrounding).
-// Used to prevent auto-resuming playback incorrectly after an interruption.
-// The flag is read by future resume logic — not yet acted on in UI.
+// Distinguishes user-initiated pauses from system interruptions.
+// Single module-level listener — never duplicated on swap.
 let _wasInterrupted = false;
 
+// Registered ONCE at module evaluation time.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    // If the tab goes background while audio is playing, mark as interrupted.
+    // The flag is reset on the next user-initiated play (onplay handler).
+    if (document.hidden && _audio && !_audio.paused) {
+      _wasInterrupted = true;
+    }
+  }, { passive: true });
+}
+
 function _setupListeners(a: HTMLAudioElement) {
-  const _slTs = () => new Date().toISOString().slice(11, 23);
-  const _slVis = () => document.hidden ? 'BG' : 'FG';
-  console.log(`[ENG ${_slTs()} ${_slVis()}] _setupListeners called — wiring handlers on element`);
   a.ontimeupdate = () => {
     const dur  = a.duration || 0;
     const prog = dur > 0 ? a.currentTime / dur : 0;
@@ -309,8 +315,10 @@ function _setupListeners(a: HTMLAudioElement) {
     }
     _throttledSaveTimestamp();
 
-    // Timing-based preload: only start buffering next track when
-    // progress > 70% OR remaining time < 25 s — saves bandwidth on skips
+    // Timing-based preload (v4 two-buffer):
+    //   Pass both nextUrl (N+1) and nextNextUrl (N+2) so the preloader can
+    //   start the advance buffer the moment the primary reaches canplay.
+    //   Both downloads complete in the foreground, fixing background playback.
     const currentTrack = _eng.activeQueue[_eng.idx];
     if (currentTrack) {
       const { activeQueue, idx, repeat } = _eng;
@@ -319,7 +327,16 @@ function _setupListeners(a: HTMLAudioElement) {
       else if (idx < activeQueue.length - 1)       nextIdx = idx + 1;
       else if (repeat === 'all')                   nextIdx = 0;
       const nextUrl = nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null;
-      checkPreloadTrigger(currentTrack.id, prog, dur, nextUrl);
+
+      // Compute next-next (N+2) for advance buffering
+      let nextNextIdx: number | null = null;
+      if (nextIdx !== null && repeat !== 'one') {
+        if (nextIdx + 1 < activeQueue.length)      nextNextIdx = nextIdx + 1;
+        else if (repeat === 'all')                 nextNextIdx = 0;
+      }
+      const nextNextUrl = nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null;
+
+      checkPreloadTrigger(currentTrack.id, prog, dur, nextUrl, nextNextUrl);
     }
   };
 
@@ -340,16 +357,10 @@ function _setupListeners(a: HTMLAudioElement) {
     // logic to distinguish "user paused" from "system interrupted".
   };
 
-  // Interruption detection: browser hides the tab or OS steals audio focus
-  // → the browser pauses audio → we mark it as an interruption.
-  // We reset the flag on user-initiated play so auto-resume doesn't fire
-  // after a deliberate pause.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && !a.paused) {
-      // Tab going background while playing — may indicate interruption
-      _wasInterrupted = true;
-    }
-  }, { passive: true });
+  // NOTE: visibilitychange listener is NOT attached here.
+  // Attaching inside _setupListeners (called on every swap) would leak a new
+  // permanent listener on every track transition. The module-level listener
+  // below _setupListeners handles interruption detection once.
 
   a.onended = () => {
     const { activeQueue, idx, repeat } = _eng;
@@ -377,12 +388,8 @@ function _setupListeners(a: HTMLAudioElement) {
     const nextTrack = activeQueue[nextIdx];
 
     // ── Try buffer swap first ─────────────────────────────────────────────
-    const _engTs = () => new Date().toISOString().slice(11, 23);
-    const _engVis = () => document.hidden ? 'BG' : 'FG';
-    console.log(`[ENG ${_engTs()} ${_engVis()}] onended: idx=${_eng.idx} track="${nextTrack.title}" — attempting swap`);
     const swapped = trySwapBuffer(nextTrack.streamUrl, getAudio().volume);
     if (swapped) {
-      console.log(`[ENG ${_engTs()} ${_engVis()}] onended: SWAP SUCCEEDED for "${nextTrack.title}"`);
       _audio = swapped;
       _setupListeners(_audio);
       _audio.play().catch((e: Error) => {
@@ -405,17 +412,23 @@ function _setupListeners(a: HTMLAudioElement) {
       _sync?.({ recentSongs: _loadRecents() });
       _savePlayback();
 
-      // Compute the track AFTER next and start buffering it
-      const nextNextIdx = nextIdx + 1 < activeQueue.length ? nextIdx + 1
-                        : repeat === 'all' ? 0 : null;
+      // Compute the track AFTER next and start buffering it.
+      // nextIdx is the index of the track that just swapped INTO playback (e.g. B=1).
+      // The preloader's primary is already C (promoted from advance during trySwapBuffer).
+      // notifySwapComplete needs the track AFTER that primary — i.e. D (nextIdx + 2).
+      // Old code used nextIdx + 1 which resolves to C, causing a redundant C re-download
+      // and leaving D unbuffered.
+      const nextNextIdx = repeat === 'all'
+        ? (nextIdx + 2) % activeQueue.length
+        : nextIdx + 2 < activeQueue.length ? nextIdx + 2 : null;
       const nextNextUrl = nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null;
-      console.log(`[ENG ${_engTs()} ${_engVis()}] calling notifySwapComplete — next-next="${activeQueue[nextNextIdx ?? -1]?.title ?? 'none'}"`);
       notifySwapComplete(nextNextUrl);
       return;
     }
 
     // ── Fallback: normal load ─────────────────────────────────────────────
-    console.log(`[ENG ${_engTs()} ${_engVis()}] onended: SWAP FAILED — falling back to _loadAndPlay for "${nextTrack.title}"`);
+    // Buffer wasn't ready (partial download, or bg throttling).
+    // _loadAndPlay benefits from any partial data already in HTTP cache.
     _loadAndPlay(nextTrack);
   };
 
@@ -439,9 +452,6 @@ function _setupListeners(a: HTMLAudioElement) {
 
 function _loadAndPlay(track: Track) {
   const a = getAudio();
-  const _lapTs = () => new Date().toISOString().slice(11, 23);
-  const _lapVis = () => document.hidden ? 'BG' : 'FG';
-  console.log(`[ENG ${_lapTs()} ${_lapVis()}] _loadAndPlay: "${track.title}" url=${track.streamUrl.slice(-40)}`);
   resetPreloadTrigger();
 
   // ── Format check before loading ──────────────────────────────────────────
@@ -622,14 +632,23 @@ function _recomputePreload(): void {
 
   let nextIdx: number | null = null;
   if (repeat === 'one') {
-    nextIdx = idx; // same track loops
+    nextIdx = idx;
   } else if (idx < activeQueue.length - 1) {
     nextIdx = idx + 1;
   } else if (repeat === 'all') {
     nextIdx = 0;
   }
 
-  recomputePreload(nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null);
+  let nextNextIdx: number | null = null;
+  if (nextIdx !== null && repeat !== 'one') {
+    if (nextIdx + 1 < activeQueue.length)  nextNextIdx = nextIdx + 1;
+    else if (repeat === 'all')             nextNextIdx = 0;
+  }
+
+  recomputePreload(
+    nextIdx     !== null ? activeQueue[nextIdx]?.streamUrl     ?? null : null,
+    nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null,
+  );
 }
 
 // ─── Recents ─────────────────────────────────────────────────────────────────

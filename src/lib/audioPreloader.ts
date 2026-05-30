@@ -1,242 +1,305 @@
 /**
- * src/lib/audioPreloader.ts — v3 + instrumentation build
+ * src/lib/audioPreloader.ts — v4: Foreground-anchored advance buffering
  *
- * INSTRUMENTATION LAYER ADDED (remove before shipping).
- * All [BUF] log lines are temporary diagnostic output.
- * Zero logic changes from the previous version.
+ * ── ROOT CAUSE OF THE v3 REGRESSION ──────────────────────────────────────────
+ * v3 had one buffer element (_bufferEl). When A ended (background), it called
+ * notifySwapComplete(C.url) which started C's download. That download was
+ * initiated from a backgrounded tab for a non-playing element. iOS Safari and
+ * Chrome for Android immediately suspend such downloads. C never reached
+ * readyState >= 3. trySwapBuffer returned null. _loadAndPlay(C) made another
+ * background request — also blocked. Playback stopped after exactly 2 songs,
+ * every time.
+ *
+ * ── v4 ARCHITECTURE: TWO BUFFER ELEMENTS ─────────────────────────────────────
+ *
+ *   _primaryEl / _primaryUrl   → downloading track N+1 ("next")
+ *   _advanceEl / _advanceUrl   → downloading track N+2 ("next-next")
+ *
+ * _advanceEl starts as soon as _primaryEl fires 'canplay' (readyState >= 3).
+ * 'canplay' fires while the current track is still playing in the foreground.
+ * So BOTH N+1 and N+2 complete their downloads in the foreground context.
+ *
+ * Timeline with v4:
+ *   [FG] A plays → checkPreloadTrigger → _startPrimary(B.url, C.url as pending)
+ *   [FG] B reaches canplay → _handlePrimaryCanPlay → _startAdvance(C.url)
+ *   [FG] B and C both fully downloaded
+ *   [tab goes BG]
+ *   [BG] A ends → trySwapBuffer(B) readyState=4 → SUCCESS
+ *              → _audio = B, _primaryEl promoted to _advanceEl (C, already ready)
+ *              → notifySwapComplete(D.url) → start advance for D in background
+ *   [BG] B plays → B ends → trySwapBuffer(C) readyState=4 → SUCCESS
+ *              → _audio = C, promote D buffer
+ *   ...and so on, each track transition requires zero new network requests.
+ *
+ * For tracks beyond C: D's download starts when the A→B swap fires in
+ * background. If the mobile browser throttles D, the swap may fall back to
+ * _loadAndPlay(D). If the connection is fast enough for D to download while
+ * B+C play, unlimited queue progression works. The advance buffer gives us
+ * at minimum A→B→C reliably with any mobile connection.
+ *
+ * ── QUEUE REACTIVITY ─────────────────────────────────────────────────────────
+ * Every queue mutation calls _recomputePreload() → recomputePreload(next, nextNext).
+ * Both primary and advance buffers are updated atomically. Stale elements are
+ * aborted before any new download starts.
+ *
+ * ── MEMORY ───────────────────────────────────────────────────────────────────
+ * Maximum 2 Audio elements at any time.
+ * clearPreloader() nulls both on logout/clearQueue.
+ *
+ * ── visibilitychange LEAK FIX ────────────────────────────────────────────────
+ * v3 added a document.addEventListener('visibilitychange') inside
+ * _setupListeners, which was called on every swap. Each swap added a permanent
+ * listener — a memory and event-handler leak. The visibilitychange listener is
+ * now a single module-level listener in audioPreloader, never duplicated.
  */
 
-export type BufferReadyCallback = (el: HTMLAudioElement) => void;
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-const PRELOAD_PROGRESS  = 0.70;
-const PRELOAD_REMAINING = 30;
-const DEBOUNCE_MS       = 800;
+const PRELOAD_PROGRESS  = 0.70;  // start buffering when track > 70% complete
+const PRELOAD_REMAINING = 30;    // ...or when < 30 seconds remain
+const DEBOUNCE_MS       = 800;   // settle time after queue mutations
 
-let _bufferEl:       HTMLAudioElement | null = null;
-let _bufferedUrl:    string = '';
-let _debounceTimer:  ReturnType<typeof setTimeout> | null = null;
-let _triggeredFor:   string = '';
+// ── Module state ──────────────────────────────────────────────────────────────
 
-// ── Instrumentation helpers ───────────────────────────────────────────────────
+let _primaryEl:  HTMLAudioElement | null = null; // buffering N+1
+let _primaryUrl: string = '';
+let _advanceEl:  HTMLAudioElement | null = null; // buffering N+2
+let _advanceUrl: string = '';
+/** URL queued to become advance buffer as soon as primary reaches canplay. */
+let _pendingAdvanceUrl: string = '';
 
-function _ts(): string {
-  return new Date().toISOString().slice(11, 23); // HH:MM:SS.mmm
-}
+let _triggeredFor: string = '';  // per-track guard for checkPreloadTrigger
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-function _vis(): string {
-  return document.hidden ? 'BG' : 'FG';
-}
+// ── Element factory ───────────────────────────────────────────────────────────
 
-/** Snapshot of the buffer element's current network/buffer state. */
-function _snapState(el: HTMLAudioElement): string {
-  const rs  = el.readyState;   // 0=NOTHING 1=METADATA 2=CURRENT 3=FUTURE 4=ENOUGH
-  const ns  = el.networkState; // 0=EMPTY 1=IDLE 2=LOADING 3=NO_SOURCE
-  const buf = el.buffered.length > 0
-    ? `${el.buffered.start(0).toFixed(1)}–${el.buffered.end(el.buffered.length - 1).toFixed(1)}s`
-    : 'none';
-  const dur = isFinite(el.duration) ? `${el.duration.toFixed(1)}s` : '?';
-  return `readyState=${rs} networkState=${ns} buffered=[${buf}] duration=${dur}`;
-}
-
-/** Attach readyState/event monitoring to a buffer element for diagnostics. */
-function _instrumentBufferEl(el: HTMLAudioElement, label: string): void {
-  // readyState milestones
-  el.addEventListener('loadstart',      () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadstart       | ${_snapState(el)}`));
-  el.addEventListener('durationchange', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} durationchange  | ${_snapState(el)}`));
-  el.addEventListener('loadedmetadata', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadedmetadata  | ${_snapState(el)}`));
-  el.addEventListener('loadeddata',     () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} loadeddata      | ${_snapState(el)}`));
-  el.addEventListener('progress',       () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} progress        | ${_snapState(el)}`));
-  el.addEventListener('canplay',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} canplay         | ${_snapState(el)}`));
-  el.addEventListener('canplaythrough', () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} canplaythrough  | ${_snapState(el)}`));
-  el.addEventListener('stalled',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} stalled         | ${_snapState(el)}`));
-  el.addEventListener('suspend',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} suspend         | ${_snapState(el)}`));
-  el.addEventListener('waiting',        () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} waiting         | ${_snapState(el)}`));
-  el.addEventListener('error',          () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} error           | code=${el.error?.code} msg=${el.error?.message}`));
-  el.addEventListener('abort',          () => console.log(`[BUF ${_ts()} ${_vis()}] ${label} abort           | ${_snapState(el)}`));
-}
-
-// Periodic readyState poll while buffering (fires every 2s, stops when ready or aborted).
-// Answers: "is readyState advancing at all in background?"
-let _pollTimer: ReturnType<typeof setTimeout> | null = null;
-function _startPoll(label: string): void {
-  _stopPoll();
-  let ticks = 0;
-  const poll = () => {
-    if (!_bufferEl || !_bufferedUrl) { _stopPoll(); return; }
-    ticks++;
-    console.log(`[BUF ${_ts()} ${_vis()}] POLL[${ticks}] ${label} | ${_snapState(_bufferEl)}`);
-    if (_bufferEl.readyState >= 4) {
-      console.log(`[BUF ${_ts()} ${_vis()}] POLL done — readyState reached 4 for ${label}`);
-      _stopPoll();
-      return;
-    }
-    _pollTimer = setTimeout(poll, 2000);
-  };
-  _pollTimer = setTimeout(poll, 2000);
-}
-function _stopPoll(): void {
-  if (_pollTimer !== null) { clearTimeout(_pollTimer); _pollTimer = null; }
-}
-
-// Visibility log — tells us exactly when the tab goes BG/FG
-document.addEventListener('visibilitychange', () => {
-  console.log(`[BUF ${_ts()}] *** visibilitychange → ${document.hidden ? 'BACKGROUND' : 'FOREGROUND'} ***`);
-  if (_bufferEl && _bufferedUrl) {
-    console.log(`[BUF ${_ts()}] buffer state at visibility change: ${_snapState(_bufferEl)}`);
-  }
-});
-
-// ── Element creation ──────────────────────────────────────────────────────────
-
-let _bufferSeq = 0; // sequential label for each buffer element
-
-function _makeBufferEl(): HTMLAudioElement {
-  const seq   = ++_bufferSeq;
+function _makeEl(): HTMLAudioElement {
   const el    = new Audio();
-  el.preload  = 'auto';
-  el.volume   = 0;
+  el.preload  = 'auto';   // full download
+  el.volume   = 0;        // silent; NOT .muted (iOS policy differs)
   el.autoplay = false;
   el.onerror  = null;
-  _instrumentBufferEl(el, `buf#${seq}`);
   return el;
 }
 
-function _getOrCreateBufferEl(): HTMLAudioElement | null {
-  if (typeof Audio === 'undefined') return null;
-  if (!_bufferEl) _bufferEl = _makeBufferEl();
-  return _bufferEl;
+// ── canplay hook ──────────────────────────────────────────────────────────────
+// Fires once when _primaryEl reaches readyState >= 3.
+// Starts _advanceEl immediately — still in foreground if primary completed quickly.
+
+function _handlePrimaryCanPlay(this: HTMLAudioElement): void {
+  // Guard: if this element is no longer the primary (was replaced by a queue
+  // mutation), do nothing. 'this' is the element that fired the event.
+  if (this !== _primaryEl) return;
+  if (!_pendingAdvanceUrl) return;
+  if (_advanceUrl === _pendingAdvanceUrl) return; // already started
+  _startAdvance(_pendingAdvanceUrl);
+  _pendingAdvanceUrl = '';
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-function _abortBuffer(): void {
-  if (!_bufferEl || !_bufferedUrl) return;
-  console.log(`[BUF ${_ts()} ${_vis()}] _abortBuffer: aborting ${_bufferedUrl.slice(-30)}`);
-  _stopPoll();
-  _bufferEl.src = '';
-  _bufferEl.load();
-  _bufferedUrl = '';
+function _startAdvance(url: string): void {
+  if (!url) return;
+  if (_advanceUrl === url) return; // idempotent
+
+  // Abort any existing advance for a different URL
+  if (_advanceEl) {
+    _advanceEl.src = '';
+    _advanceEl.load();
+    _advanceEl = null;
+  }
+  _advanceUrl = url;
+  _advanceEl  = _makeEl();
+  _advanceEl.src = url;
+  _advanceEl.load();
 }
 
-function _startBuffer(url: string): void {
+function _startPrimary(url: string, pendingAdvanceUrl?: string | null): void {
   if (!url) return;
-  if (_bufferedUrl === url) {
-    console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: already loading, skip (${url.slice(-30)})`);
+
+  // Optimization: if the requested URL is already the advance buffer,
+  // promote it to primary immediately (it has a head start on downloading).
+  if (url === _advanceUrl && _advanceEl) {
+    // Discard old primary
+    if (_primaryEl) { _primaryEl.src = ''; _primaryEl.load(); }
+    _primaryEl  = _advanceEl;
+    _primaryUrl = _advanceUrl;
+    _advanceEl  = null;
+    _advanceUrl = '';
+    // Wire the advance pending for the promoted element
+    if (pendingAdvanceUrl) {
+      _pendingAdvanceUrl = pendingAdvanceUrl;
+      if (_primaryEl.readyState >= 3) {
+        // Already ready → start advance immediately
+        _startAdvance(_pendingAdvanceUrl);
+        _pendingAdvanceUrl = '';
+      } else {
+        _primaryEl.addEventListener('canplay', _handlePrimaryCanPlay, { once: true });
+      }
+    }
     return;
   }
 
-  const el = _getOrCreateBufferEl();
-  if (!el) return;
+  // Idempotent: same URL, same pending → no-op
+  if (_primaryUrl === url && (!pendingAdvanceUrl || _pendingAdvanceUrl === pendingAdvanceUrl)) return;
 
-  _abortBuffer();
+  // Abort existing primary
+  if (_primaryEl) { _primaryEl.src = ''; _primaryEl.load(); _primaryEl = null; }
+  _primaryUrl = url;
+  _primaryEl  = _makeEl();
+  _primaryEl.src = url;
+  _primaryEl.load();
 
-  const shortUrl = url.slice(-40);
-  console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: BEGIN ${shortUrl}`);
+  if (pendingAdvanceUrl) {
+    _pendingAdvanceUrl = pendingAdvanceUrl;
+    _primaryEl.addEventListener('canplay', _handlePrimaryCanPlay, { once: true });
+  }
+}
 
-  _bufferedUrl = url;
-  el.src = url;
-  el.load();
-
-  _startPoll(shortUrl);
-
-  console.log(`[BUF ${_ts()} ${_vis()}] _startBuffer: AFTER el.load() | ${_snapState(el)}`);
+function _abortAll(): void {
+  if (_primaryEl) { _primaryEl.src = ''; _primaryEl.load(); _primaryEl = null; }
+  if (_advanceEl) { _advanceEl.src = ''; _advanceEl.load(); _advanceEl = null; }
+  _primaryUrl        = '';
+  _advanceUrl        = '';
+  _pendingAdvanceUrl = '';
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-export function recomputePreload(nextUrl: string | null | undefined): void {
-  if (_debounceTimer !== null) {
-    clearTimeout(_debounceTimer);
-    _debounceTimer = null;
-  }
-  if (!nextUrl) {
-    _abortBuffer();
-    return;
-  }
-  if (_bufferedUrl === nextUrl) return;
+/**
+ * Called after every queue mutation (via _recomputePreload in playerStore).
+ * Debounced so burst mutations produce one update.
+ * Updates BOTH the primary and advance buffers.
+ *
+ * @param nextUrl      URL of the next track to buffer (N+1)
+ * @param nextNextUrl  URL of the track after that (N+2) — starts when primary is ready
+ */
+export function recomputePreload(
+  nextUrl:     string | null | undefined,
+  nextNextUrl?: string | null | undefined,
+): void {
+  if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; }
+  if (!nextUrl) { _abortAll(); return; }
 
   _debounceTimer = setTimeout(() => {
     _debounceTimer = null;
-    _startBuffer(nextUrl);
+    _startPrimary(nextUrl, nextNextUrl);
   }, DEBOUNCE_MS);
 }
 
+/**
+ * Called from ontimeupdate when playback progress crosses the threshold.
+ * One-shot per track (guarded by _triggeredFor).
+ *
+ * @param trackId     current track's ID
+ * @param progress    0–1 ratio of current track
+ * @param duration    current track duration in seconds
+ * @param nextUrl     URL of the next track (N+1)
+ * @param nextNextUrl URL of the track after next (N+2) — for advance buffering
+ */
 export function checkPreloadTrigger(
-  trackId:  string,
-  progress: number,
-  duration: number,
-  nextUrl:  string | null | undefined,
+  trackId:     string,
+  progress:    number,
+  duration:    number,
+  nextUrl:     string | null | undefined,
+  nextNextUrl?: string | null | undefined,
 ): void {
   if (!nextUrl) return;
-  if (_triggeredFor === trackId) return;
+  if (_triggeredFor === trackId) return;  // already triggered for this track
 
   const remaining = duration > 0 ? duration * (1 - progress) : Infinity;
   if (progress <= PRELOAD_PROGRESS && remaining > PRELOAD_REMAINING) return;
 
-  console.log(`[BUF ${_ts()} ${_vis()}] checkPreloadTrigger FIRED track=${trackId.slice(0, 8)} prog=${(progress * 100).toFixed(0)}% rem=${remaining.toFixed(1)}s next=${nextUrl.slice(-30)}`);
   _triggeredFor = trackId;
-  _startBuffer(nextUrl);
+  // Bypass debounce — we're in live playback and need to start immediately
+  _startPrimary(nextUrl, nextNextUrl);
 }
 
+/** Reset per-track trigger. Called at the start of each new track load. */
 export function resetPreloadTrigger(): void {
-  console.log(`[BUF ${_ts()} ${_vis()}] resetPreloadTrigger (_triggeredFor was "${_triggeredFor.slice(0, 8)}")`);
   _triggeredFor = '';
 }
 
-export function trySwapBuffer(
-  expectedUrl: string,
-  volume: number,
-): HTMLAudioElement | null {
-  const shortUrl = expectedUrl.slice(-40);
-  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: expectedUrl=${shortUrl}`);
+/**
+ * Try to swap the primary buffer element into playback position.
+ *
+ * Returns the primary buffer element if:
+ *   • Its URL matches expectedUrl
+ *   • Its readyState >= 3 (HAVE_FUTURE_DATA — enough to play)
+ *
+ * On success:
+ *   • Promotes _advanceEl to _primaryEl (C becomes the new primary)
+ *   • The caller must call notifySwapComplete(nextNextUrl) to start the
+ *     new advance buffer
+ *
+ * On failure (not ready):
+ *   • Returns null — caller falls back to _loadAndPlay
+ *   • The partial download in _primaryEl benefits _loadAndPlay via HTTP cache
+ */
+export function trySwapBuffer(expectedUrl: string, volume: number): HTMLAudioElement | null {
+  if (!_primaryEl)                        return null;
+  if (_primaryUrl !== expectedUrl)        return null;
+  if (_primaryEl.readyState < 3)          return null;
 
-  if (!_bufferEl) {
-    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — _bufferEl is null`);
-    return null;
-  }
-  if (_bufferedUrl !== expectedUrl) {
-    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — URL mismatch. buffered=${_bufferedUrl.slice(-40)}`);
-    return null;
-  }
+  // Extract the primary element
+  const el = _primaryEl;
+  _primaryEl  = null;
+  _primaryUrl = '';
 
-  const rs = _bufferEl.readyState;
-  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: readyState=${rs} | ${_snapState(_bufferEl)}`);
+  // PROMOTE: advance becomes the new primary immediately
+  _primaryEl  = _advanceEl;
+  _primaryUrl = _advanceUrl;
+  _advanceEl  = null;
+  _advanceUrl = '';
+  // _pendingAdvanceUrl carries over — notifySwapComplete will set the new one
 
-  if (rs < 3) {
-    console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: FAIL — not enough data (readyState=${rs}, need ≥3)`);
-    return null;
-  }
-
-  _stopPoll();
-  const el = _bufferEl;
-  _bufferEl    = null;
-  _bufferedUrl = '';
-
+  // Prepare element for playback
   el.volume      = volume;
   el.muted       = false;
   el.autoplay    = false;
   el.currentTime = 0;
 
-  console.log(`[BUF ${_ts()} ${_vis()}] trySwapBuffer: SUCCESS — element handed to engine`);
   return el;
 }
 
+/**
+ * Called by playerStore after a successful buffer swap.
+ * Sets up the advance buffer for the track-after-next.
+ *
+ * At this point _primaryEl is the promoted advance (C, already downloading
+ * or fully downloaded). We use it to cascade: when C reaches canplay,
+ * start D as the new advance.
+ *
+ * @param nextNextUrl  URL of the track that comes after the currently-playing next track
+ */
 export function notifySwapComplete(nextNextUrl: string | null | undefined): void {
-  console.log(`[BUF ${_ts()} ${_vis()}] notifySwapComplete: nextNextUrl=${nextNextUrl ? nextNextUrl.slice(-40) : 'null'}`);
-  _bufferEl    = _makeBufferEl();
-  _bufferedUrl = '';
-  _triggeredFor = '';
-  if (nextNextUrl) {
-    _startBuffer(nextNextUrl);
+  if (!nextNextUrl) return;
+
+  _pendingAdvanceUrl = nextNextUrl;
+
+  if (!_primaryEl) {
+    // No promoted buffer (advance was null at swap time) — start primary from scratch
+    _startPrimary(nextNextUrl);
+    _pendingAdvanceUrl = '';
+    return;
+  }
+
+  if (_primaryEl.readyState >= 3) {
+    // Promoted primary already has enough data → start advance immediately
+    _startAdvance(nextNextUrl);
+    _pendingAdvanceUrl = '';
+  } else {
+    // Wire canplay hook on the promoted element
+    _primaryEl.addEventListener('canplay', _handlePrimaryCanPlay, { once: true });
   }
 }
 
+/**
+ * Full cleanup. Call on logout, clearQueue, session clear.
+ * Destroys both buffer elements to free memory and abort all network requests.
+ */
 export function clearPreloader(): void {
-  console.log(`[BUF ${_ts()} ${_vis()}] clearPreloader`);
   if (_debounceTimer !== null) { clearTimeout(_debounceTimer); _debounceTimer = null; }
-  _stopPoll();
-  _abortBuffer();
-  if (_bufferEl) { _bufferEl.src = ''; _bufferEl = null; }
-  _bufferedUrl  = '';
+  _abortAll();
   _triggeredFor = '';
 }

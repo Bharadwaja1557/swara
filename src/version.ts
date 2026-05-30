@@ -15,11 +15,11 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.6
+ * CURRENT: 9.8
  *   9.x = Creator Platform
- *   .6  = UserAvatar explicit load-state (letter/image mutual exclusion);
- *         audioPreloader v3 double-buffer swap for background playback continuity
+ *   .8  = Fix off-by-one in onended notifySwapComplete: nextIdx+1→nextIdx+2,
+ *         repeat=all uses modulo wrap; D now buffers after A→B swap
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.6';
+export const APP_VERSION = '9.8';
