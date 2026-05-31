@@ -36,6 +36,8 @@ const config: CapacitorConfig = {
       // Match the app's near-black background; prevents a white flash on launch.
       backgroundColor: '#09090C',
       style: 'DARK',
+      // false = status bar occupies its own space; the WebView starts below it.
+      // This prevents app content from rendering underneath the notification bar.
       overlaysWebView: false,
     },
   },
