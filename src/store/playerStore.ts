@@ -47,7 +47,7 @@ import { loadAndMigratePlaybackState } from '@/lib/persistence/migrations';
 import { STORAGE_KEY } from '@/lib/persistence/versions';
 import type { SchemaV3 } from '@/lib/persistence/versions';
 import { canBrowserPlay }                          from '@/features/media/canBrowserPlay';
-import { recomputePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloader, trySwapBuffer, notifySwapComplete } from '@/lib/audioPreloader';
+import { schedulePreload, checkPreloadTrigger, resetPreloadTrigger, clearPreloader, trySwapBuffer } from '@/lib/audioPreloader';
 import { classifyMediaError, MEDIA_ERROR_MESSAGES } from '@/features/media/mediaErrors';
 import { mediaLogger }                              from '@/features/media/mediaLogger';
 
@@ -315,10 +315,7 @@ function _setupListeners(a: HTMLAudioElement) {
     }
     _throttledSaveTimestamp();
 
-    // Timing-based preload (v4 two-buffer):
-    //   Pass both nextUrl (N+1) and nextNextUrl (N+2) so the preloader can
-    //   start the advance buffer the moment the primary reaches canplay.
-    //   Both downloads complete in the foreground, fixing background playback.
+    // Preload trigger: at 50% progress, start buffering the next track.
     const currentTrack = _eng.activeQueue[_eng.idx];
     if (currentTrack) {
       const { activeQueue, idx, repeat } = _eng;
@@ -327,16 +324,7 @@ function _setupListeners(a: HTMLAudioElement) {
       else if (idx < activeQueue.length - 1)       nextIdx = idx + 1;
       else if (repeat === 'all')                   nextIdx = 0;
       const nextUrl = nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null;
-
-      // Compute next-next (N+2) for advance buffering
-      let nextNextIdx: number | null = null;
-      if (nextIdx !== null && repeat !== 'one') {
-        if (nextIdx + 1 < activeQueue.length)      nextNextIdx = nextIdx + 1;
-        else if (repeat === 'all')                 nextNextIdx = 0;
-      }
-      const nextNextUrl = nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null;
-
-      checkPreloadTrigger(currentTrack.id, prog, dur, nextUrl, nextNextUrl);
+      checkPreloadTrigger(currentTrack.id, prog, nextUrl);
     }
   };
 
@@ -387,7 +375,7 @@ function _setupListeners(a: HTMLAudioElement) {
     _eng.idx = nextIdx;
     const nextTrack = activeQueue[nextIdx];
 
-    // ── Try buffer swap first ─────────────────────────────────────────────
+    // ── Try swap: use preloaded element if ready ─────────────────────────
     const swapped = trySwapBuffer(nextTrack.streamUrl, getAudio().volume);
     if (swapped) {
       _audio = swapped;
@@ -395,7 +383,6 @@ function _setupListeners(a: HTMLAudioElement) {
       _audio.play().catch((e: Error) => {
         if (e?.name === 'NotAllowedError') return;
         if (e?.name === 'AbortError')      return;
-        // Swap play() failed — fall back to _loadAndPlay
         _loadAndPlay(nextTrack);
       });
       _sync?.({
@@ -411,24 +398,13 @@ function _setupListeners(a: HTMLAudioElement) {
       _pushRecent(nextTrack.albumId, nextTrack.id);
       _sync?.({ recentSongs: _loadRecents() });
       _savePlayback();
-
-      // Compute the track AFTER next and start buffering it.
-      // nextIdx is the index of the track that just swapped INTO playback (e.g. B=1).
-      // The preloader's primary is already C (promoted from advance during trySwapBuffer).
-      // notifySwapComplete needs the track AFTER that primary — i.e. D (nextIdx + 2).
-      // Old code used nextIdx + 1 which resolves to C, causing a redundant C re-download
-      // and leaving D unbuffered.
-      const nextNextIdx = repeat === 'all'
-        ? (nextIdx + 2) % activeQueue.length
-        : nextIdx + 2 < activeQueue.length ? nextIdx + 2 : null;
-      const nextNextUrl = nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null;
-      notifySwapComplete(nextNextUrl);
+      // resetPreloadTrigger so the new track's ontimeupdate can schedule the
+      // track after this one at the 50% threshold.
+      resetPreloadTrigger();
       return;
     }
 
     // ── Fallback: normal load ─────────────────────────────────────────────
-    // Buffer wasn't ready (partial download, or bg throttling).
-    // _loadAndPlay benefits from any partial data already in HTTP cache.
     _loadAndPlay(nextTrack);
   };
 
@@ -618,37 +594,19 @@ function _advancePrev() {
 }
 
 /**
- * Compute the URL of the next effective track and pass it to recomputePreload().
- * Called after every queue topology mutation so the preload target is always live.
- *
- * recomputePreload() handles:
- *   - debouncing (1 200 ms settle)
- *   - idempotency (no-op if URL unchanged)
- *   - stale cancellation (aborts in-progress HTTP request if URL changed)
+ * Compute the URL of the next effective track and schedule preloading.
+ * Called after every queue mutation so the preload target stays current.
  */
 function _recomputePreload(): void {
   const { activeQueue, idx, repeat } = _eng;
-  if (activeQueue.length === 0) { recomputePreload(null); return; }
+  if (activeQueue.length === 0) { schedulePreload(null); return; }
 
   let nextIdx: number | null = null;
-  if (repeat === 'one') {
-    nextIdx = idx;
-  } else if (idx < activeQueue.length - 1) {
-    nextIdx = idx + 1;
-  } else if (repeat === 'all') {
-    nextIdx = 0;
-  }
+  if (repeat === 'one')                        nextIdx = idx;
+  else if (idx < activeQueue.length - 1)       nextIdx = idx + 1;
+  else if (repeat === 'all')                   nextIdx = 0;
 
-  let nextNextIdx: number | null = null;
-  if (nextIdx !== null && repeat !== 'one') {
-    if (nextIdx + 1 < activeQueue.length)  nextNextIdx = nextIdx + 1;
-    else if (repeat === 'all')             nextNextIdx = 0;
-  }
-
-  recomputePreload(
-    nextIdx     !== null ? activeQueue[nextIdx]?.streamUrl     ?? null : null,
-    nextNextIdx !== null ? activeQueue[nextNextIdx]?.streamUrl ?? null : null,
-  );
+  schedulePreload(nextIdx !== null ? activeQueue[nextIdx]?.streamUrl ?? null : null);
 }
 
 // ─── Recents ─────────────────────────────────────────────────────────────────
@@ -979,7 +937,7 @@ export const usePlayerStore = create<PlayerState>((set, get) => {
     // ── clearQueue ────────────────────────────────────────────────────────
     clearQueue: () => {
       getAudio().pause();
-      recomputePreload(null); // abort buffering
+      schedulePreload(null); // abort buffering
       _eng.activeQueue   = [];
       _eng.originalQueue = [];
       _eng.idx           = 0;

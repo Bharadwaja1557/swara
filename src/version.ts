@@ -15,11 +15,11 @@
  *     e.g. queue architecture, playlist system, cloud sync
  *   - Second digit (minor): small features, bugfixes, UI refinements, polish passes
  *
- * CURRENT: 9.8
+ * CURRENT: 9.9
  *   9.x = Creator Platform
- *   .8  = Fix off-by-one in onended notifySwapComplete: nextIdx+1→nextIdx+2,
- *         repeat=all uses modulo wrap; D now buffers after A→B swap
+ *   .9  = Simplified preloader: single-slot, 50% trigger, no advance buffer,
+ *         no promotion, no notifySwapComplete, no canplay chain
  *
  * To update: change APP_VERSION here only. No other file needs to change.
  */
-export const APP_VERSION = '9.8';
+export const APP_VERSION = '9.9';
