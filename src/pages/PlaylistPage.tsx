@@ -41,7 +41,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useLibraryStore }    from '@/store/libraryStore';
-import { usePlayerStore }     from '@/store/playerStore';
+import { usePlayerStore, shuffleArray } from '@/store/playerStore';
 import { usePlaylistStore }   from '@/store/usePlaylistStore';
 import { useAuthStore }       from '@/store/useAuthStore';
 import { trackActions }       from '@/lib/trackActions';
@@ -204,7 +204,7 @@ const PlaylistPage = () => {
     if (!playlist || resolvedTracks.length === 0) return;
     const tracks = resolvedTracks.map((x) => x.track);
     if (isShuffle && !startTrack) {
-      trackActions.playFromPlaylist([...tracks].sort(() => Math.random() - 0.5), playlist);
+      trackActions.playFromPlaylist(shuffleArray(tracks), playlist);
     } else {
       trackActions.playFromPlaylist(tracks, playlist, startTrack);
     }

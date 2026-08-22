@@ -3,7 +3,7 @@
  *
  * CANONICAL USER LIBRARY STORE (v1).
  *
- * Why this store vs the deleted libraryUserStore:
+ * Why this store vs the earlier user-library store it replaced:
  *   - Stores only IDs, never duplicates Track/Album objects from the catalog.
  *     The old store cached album metadata inside entries, which diverged from
  *     catalog updates and wasted memory with stale snapshots.
@@ -31,7 +31,7 @@
 import { create } from 'zustand';
 
 const CURRENT_KEY = 'swara_user_library_v1';
-const LEGACY_KEY  = 'swara_user_library'; // written by deleted libraryUserStore
+const LEGACY_KEY  = 'swara_user_library'; // written by the store this one replaced
 
 export interface UserLibraryEntry {
   albumId:  string;

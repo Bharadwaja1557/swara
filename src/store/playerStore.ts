@@ -224,6 +224,9 @@ function _fisher<T>(arr: T[]): T[] {
   return a;
 }
 
+/** Unbiased Fisher-Yates. Exported so UI code shares this one implementation. */
+export { _fisher as shuffleArray };
+
 /**
  * _assertInvariants — dev-only check. Called after every mutation.
  * Verifies I1, I2, I3 hold. No-ops in production.

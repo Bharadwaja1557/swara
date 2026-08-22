@@ -27,4 +27,7 @@ pnpm-debug.log*
 .idea/
 
 # TypeScript
-*.tsbuildinfo.DS_Store
+*.tsbuildinfo
+
+# Working artifacts (not part of the repo)
+CLEANUP_LOG.md

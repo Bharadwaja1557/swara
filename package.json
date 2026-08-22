@@ -10,7 +10,6 @@
     "build:android": "tsc && vite build --mode android",
     "cap:sync": "npm run build:android && npx cap sync android",
     "cap:open": "npx cap open android",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist"
@@ -27,7 +26,6 @@
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
-    "sharp": "^0.34.5",
     "zustand": "^5.0.0"
   },
   "devDependencies": {

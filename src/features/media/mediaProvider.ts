@@ -1,69 +1,8 @@
 /**
  * src/features/media/mediaProvider.ts
- *
- * ════════════════════════════════════════════════════════
- * MEDIA DELIVERY ARCHITECTURE
- * ════════════════════════════════════════════════════════
- *
- * Storage layer:  GitHub Releases / GitHub repository
- *   → gajala-sonic-solutions/m4a-db
- *   → contains library.json, album JSON files, audio .m4a files, cover images
- *   → GitHub is the FREE zero-cost storage backend — never changes
- *
- * Delivery layer: jsDelivr CDN  ← active provider
- *   → https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{path}
- *   → jsDelivr mirrors GitHub content at its global edge network
- *   → This is the URL the browser actually fetches
- *
- * ════════════════════════════════════════════════════════
- * WHY JSDELIVR INSTEAD OF DIRECT GITHUB URLS
- * ════════════════════════════════════════════════════════
- *
- * Direct raw.githubusercontent.com problems:
- *   1. Listed in EasyPrivacy and uBlock Origin default lists → ERR_BLOCKED_BY_CLIENT
- *   2. No Accept-Ranges header → browser cannot seek/scrub audio
- *   3. No global edge caching → high latency outside US
- *   4. Rate-limited per IP → large libraries hit limits
- *   5. Content-Type for .m4a is inconsistent → MEDIA_ELEMENT_ERROR: Format error
- *
- * Direct GitHub Releases (github.com/releases/download) problems:
- *   1. 2–4 HTTP redirects before reaching actual bytes → slow first byte
- *   2. Final redirect target is a short-lived signed URL → seek after pause fails
- *   3. github.com matched by Brave Shields and some corporate firewalls
- *   4. Inconsistent CORS headers across redirect chain
- *
- * jsDelivr advantages:
- *   ✓ NOT on any major ad-blocker list (it's a legitimate OSS CDN)
- *   ✓ Serves Accept-Ranges: bytes → full audio seeking/scrubbing works
- *   ✓ Returns correct Content-Type: audio/mp4 for .m4a files
- *   ✓ 100+ global PoPs → low latency worldwide
- *   ✓ Free for open-source repos, no rate limits for reasonable traffic
- *   ✓ Stable URLs — no signed URL expiry
- *   ✓ Proper CORS headers (Access-Control-Allow-Origin: *)
- *
- * ════════════════════════════════════════════════════════
- * URL REWRITING
- * ════════════════════════════════════════════════════════
- *
- * The asset DB (library.json, album JSON files) may store absolute
- * raw.githubusercontent.com URLs in the `url` and `cover` fields.
- * resolveAudioUrl() and resolveCoverUrl() rewrite these to jsDelivr
- * URLs so delivery always goes through the CDN, even for pre-existing
- * absolute URLs in the data.
- *
- * Rewrite rule:
- *   https://raw.githubusercontent.com/{org}/{repo}/{ref}/{path}
- *   → https://cdn.jsdelivr.net/gh/{org}/{repo}@{ref}/{path}
- *
- * ════════════════════════════════════════════════════════
- * FUTURE PROVIDER MIGRATION
- * ════════════════════════════════════════════════════════
- *
- * To switch provider (e.g. to a custom CDN):
- *   1. Change ACTIVE_PROVIDER constant below
- *   2. Add a new base-URL builder function
- *   3. Update rewriteGithubUrl() if needed
- *   That is the complete change — no other file needs modification.
+ * Audio and cover assets are served directly from GitHub Release downloads;
+ * jsDelivr serves only the two JSON manifests and cannot serve Release assets.
+ * ACTIVE_PROVIDER exists so the origin can be swapped for real object storage.
  */
 
 export type MediaProviderName = 'jsdelivr' | 'github-raw';
